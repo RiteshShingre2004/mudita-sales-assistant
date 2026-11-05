@@ -16,9 +16,18 @@
       <a href="/" {% if page == 'inbox' %}aria-current="page"{% endif %}>Inbox</a>
       <a href="/policy" {% if page == 'policy' %}aria-current="page"{% endif %}>Business policy</a>
     </nav>
-    <ul class="connections" id="connections" aria-label="Connection status"></ul>
+    <div class="conn-menu" id="conn-menu">
+      <button type="button" class="conn-toggle" id="conn-toggle" aria-expanded="false" aria-controls="conn-panel">
+        <span class="conn-dots" id="conn-dots" aria-hidden="true"></span>
+        <span id="conn-summary">Connections</span>
+      </button>
+      <div class="conn-panel" id="conn-panel" hidden>
+        <ul id="conn-list"></ul>
+      </div>
+    </div>
   </header>
   {% block content %}{% endblock %}
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
   <script src="/static/common.js"></script>
   {% block scripts %}{% endblock %}
 </body>

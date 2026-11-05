@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Connection problem | Lumen sales desk{% endblock %}
+{% block content %}
+<main class="notice-page">
+  <h1>Google was not connected</h1>
+  <p>{{ message }}</p>
+  <p><a class="button primary" href="/oauth/google/start">Try again</a> <a class="button" href="/">Back to inbox</a></p>
+</main>
+{% endblock %}

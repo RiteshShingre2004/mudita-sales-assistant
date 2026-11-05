@@ -102,6 +102,7 @@ def get_conversation(conversation_id: int, session: Session = Depends(get_sessio
         "channel": c.channel,
         "contact": {"name": c.contact.display_name, "external_id": c.contact.external_id,
                     "is_demo": c.contact.is_demo},
+        "subject": c.subject,
         "automation_paused": c.automation_paused,
         "paused_by": c.paused_by,
         "paused_at": _iso(c.paused_at),
@@ -151,6 +152,44 @@ def set_takeover(conversation_id: int, body: TakeoverIn, session: Session = Depe
     return {"automation_paused": c.automation_paused}
 
 
+class ReplyIn(BaseModel):
+    text: str
+
+
+@router.post("/conversations/{conversation_id}/reply")
+def operator_reply(conversation_id: int, body: ReplyIn, session: Session = Depends(get_session),
+                   operator: str = Depends(require_operator)):
+    from app.outbound import send_message
+
+    c = session.get(Conversation, conversation_id)
+    if c is None:
+        raise HTTPException(404, "Conversation not found")
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(422, "Write a message first")
+    if c.contact.is_demo:
+        raise HTTPException(409, "This is sample data; replies can only be sent in real conversations")
+    msg = send_message(session, c, text[:5000], author="human", actor=f"human:{operator}")
+    return {"send_status": msg.send_status, "error": msg.error}
+
+
+# ---------- channels ----------
+
+@router.post("/channels/email/poll")
+def poll_email_now(operator: str = Depends(require_operator)):
+    from app.poller import poll_gmail_now
+
+    return poll_gmail_now(actor=f"human:{operator}")
+
+
+@router.post("/connections/google/disconnect")
+def google_disconnect(session: Session = Depends(get_session), operator: str = Depends(require_operator)):
+    from app.google_oauth import disconnect
+
+    disconnect(session, actor=f"human:{operator}")
+    return {"ok": True}
+
+
 # ---------- global log ----------
 
 @router.get("/log")
@@ -172,6 +211,17 @@ class PolicyIn(BaseModel):
     yaml: str
 
 
+@router.post("/policy/validate")
+def validate_policy(body: PolicyIn):
+    from app.policy import parse_policy
+
+    try:
+        parse_policy(body.yaml)
+    except PolicyError as exc:
+        return {"valid": False, "errors": exc.errors}
+    return {"valid": True, "errors": []}
+
+
 @router.put("/policy")
 def update_policy(body: PolicyIn, session: Session = Depends(get_session),
                   operator: str = Depends(require_operator)):
@@ -184,12 +234,20 @@ def update_policy(body: PolicyIn, session: Session = Depends(get_session),
 
 # ---------- connections ----------
 
+# provider shown in UI -> (label, env check, connections row that holds its state, how to connect)
 _PROVIDERS = {
-    "email": ("Gmail inbox", lambda: bool(settings.google_client_id and settings.google_client_secret)),
-    "calendar": ("Google Calendar", lambda: bool(settings.google_client_id and settings.google_client_secret)),
-    "whatsapp": ("WhatsApp", lambda: bool(settings.whatsapp_token and settings.whatsapp_phone_number_id)),
-    "instagram": ("Instagram", lambda: bool(settings.instagram_token)),
-    "llm": ("Groq LLM", lambda: bool(settings.groq_api_key)),
+    "email": ("Gmail inbox", lambda: bool(settings.google_client_id and settings.google_client_secret), "google", "oauth"),
+    "calendar": ("Google Calendar", lambda: bool(settings.google_client_id and settings.google_client_secret), "google", "oauth"),
+    "whatsapp": ("WhatsApp", lambda: bool(settings.whatsapp_token and settings.whatsapp_phone_number_id), "whatsapp", "env"),
+    "instagram": ("Instagram", lambda: bool(settings.instagram_token), "instagram", "env"),
+    "llm": ("Groq LLM", lambda: bool(settings.groq_api_key), "llm", "env"),
+}
+_ENV_NAMES = {
+    "email": "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET",
+    "calendar": "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET",
+    "whatsapp": "WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID",
+    "instagram": "INSTAGRAM_ACCESS_TOKEN",
+    "llm": "GROQ_API_KEY",
 }
 
 
@@ -197,14 +255,15 @@ _PROVIDERS = {
 def connections(session: Session = Depends(get_session)):
     rows = {r.provider: r for r in session.scalars(select(Connection))}
     out = []
-    for key, (label, configured) in _PROVIDERS.items():
-        row = rows.get(key)
+    for key, (label, configured, row_key, connect) in _PROVIDERS.items():
+        row = rows.get(row_key)
         if not configured():
-            status, err = "not_configured", "Environment variables are missing."
-        elif row is None:
-            status, err = ("ok" if key == "llm" else "not_connected"), ""
+            status, err = "not_configured", f"Set {_ENV_NAMES[key]} on the server."
+        elif row is None or (connect == "oauth" and not (row.credentials or {}).get("refresh_token") and row.status == "ok"):
+            status, err = ("ok" if connect == "env" else "not_connected"), ""
         else:
             status, err = row.status, row.last_error
-        out.append({"provider": key, "label": label, "status": status, "error": err,
-                    "account": row.account if row else "", "last_checked_at": _iso(row.last_checked_at) if row else None})
+        out.append({"provider": key, "label": label, "status": status, "error": err, "connect": connect,
+                    "account": row.account if row else "",
+                    "last_checked_at": _iso(row.last_checked_at) if row else None})
     return out

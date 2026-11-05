@@ -31,31 +31,80 @@ function renderSummary(p) {
     <p class="hint">At least ${m.min_notice_hours} hours' notice, up to ${m.horizon_days} days ahead, ${m.slots_to_offer} slots offered at a time.</p>`;
 }
 
+const validityEl = document.getElementById("validity");
+const saveBtn = document.getElementById("save");
+let versionText = "";
+
+function markDirty() {
+  const dirty = ta.value !== saved;
+  versionEl.innerHTML = dirty ? `<span class="dirty-dot">Unsaved edits</span>, based on ${esc(versionText)}` : esc(versionText);
+  saveBtn.disabled = !dirty;
+}
+
+let validateTimer = null;
+async function validateNow() {
+  if (ta.value === saved) { validityEl.textContent = ""; errorsEl.innerHTML = ""; return; }
+  try {
+    const r = await api("/api/policy/validate", { method: "POST", body: JSON.stringify({ yaml: ta.value }) });
+    validityEl.dataset.valid = String(r.valid);
+    validityEl.textContent = r.valid ? "Valid. Ready to save." : `${r.errors.length} problem${r.errors.length > 1 ? "s" : ""} to fix`;
+    errorsEl.innerHTML = r.errors.map((x) => `<li>${esc(x)}</li>`).join("");
+  } catch { validityEl.textContent = ""; }
+}
+
 async function load() {
   const p = await api("/api/policy");
   saved = p.yaml;
   ta.value = p.yaml;
-  versionEl.textContent = `Version ${p.version}, saved by ${p.created_by}`;
+  versionText = `Version ${p.version}, saved by ${p.created_by}`;
   renderSummary(p.policy);
+  markDirty();
+  validityEl.textContent = "";
 }
 
-document.getElementById("save").addEventListener("click", async () => {
+async function save() {
+  if (ta.value === saved) return;
   errorsEl.innerHTML = "";
   statusEl.textContent = "Saving…";
   try {
     const r = await api("/api/policy", { method: "PUT", body: JSON.stringify({ yaml: ta.value }) });
-    statusEl.textContent = `Saved as version ${r.version}.`;
+    statusEl.textContent = "";
+    toast(`Policy saved as version ${r.version}. New decisions use it from now on.`, "ok");
     await load();
   } catch (e) {
-    statusEl.textContent = "Not saved. Fix the problems below; the previous version is still active.";
+    statusEl.textContent = "Not saved. The previous version is still active.";
     const errs = e.data?.detail?.errors || [e.message];
     errorsEl.innerHTML = errs.map((x) => `<li>${esc(x)}</li>`).join("");
   }
+}
+
+ta.addEventListener("input", () => {
+  markDirty();
+  statusEl.textContent = "";
+  clearTimeout(validateTimer);
+  validateTimer = setTimeout(validateNow, 400);
 });
+let tabReleased = false; // Escape, then Tab, moves focus out (no keyboard trap)
+ta.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { tabReleased = true; return; }
+  if (e.key !== "Tab") { tabReleased = false; return; }
+  if (!tabReleased && !e.shiftKey && !e.ctrlKey && !e.metaKey) { // indent instead of leaving the editor
+    e.preventDefault();
+    ta.setRangeText("  ", ta.selectionStart, ta.selectionEnd, "end");
+    ta.dispatchEvent(new Event("input"));
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); save(); }
+});
+window.addEventListener("beforeunload", (e) => { if (ta.value !== saved) e.preventDefault(); });
+saveBtn.addEventListener("click", save);
 document.getElementById("revert").addEventListener("click", () => {
   ta.value = saved;
   errorsEl.innerHTML = "";
-  statusEl.textContent = "Edits discarded.";
+  validityEl.textContent = "";
+  markDirty();
+  toast("Edits discarded.");
 });
 
 load().catch((e) => { statusEl.textContent = `Could not load the policy: ${e.message}`; });

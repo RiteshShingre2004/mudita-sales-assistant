@@ -64,6 +64,7 @@ class Conversation(Base):
     contact_id: Mapped[int] = mapped_column(ForeignKey("contacts.id"))
     channel: Mapped[str] = mapped_column(String(20))
     thread_ref: Mapped[str] = mapped_column(String(255), default="")  # e.g. Gmail threadId
+    subject: Mapped[str] = mapped_column(String(500), default="")
     automation_paused: Mapped[bool] = mapped_column(Boolean, default=False)  # human takeover
     paused_by: Mapped[str] = mapped_column(String(100), default="")
     paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -90,6 +91,7 @@ class Message(Base):
     body: Mapped[str] = mapped_column(Text, default="")
     send_status: Mapped[str] = mapped_column(String(20), default="received")  # received|sent|failed
     error: Mapped[str] = mapped_column(Text, default="")
+    meta: Mapped[dict] = mapped_column(JSON, default=dict)  # channel specifics, e.g. email subject/Message-ID
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

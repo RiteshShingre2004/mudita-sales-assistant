@@ -8,7 +8,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -24,13 +24,19 @@ KNOWN_INTENTS = {"job_application", "student_project", "vendor_pitch", "spam"}
 SLUG = r"^[a-z][a-z0-9_]{1,40}$"
 
 
-class Service(BaseModel):
+class Strict(BaseModel):
+    """Unknown keys are errors, so a typo cannot silently fall back to a default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class Service(Strict):
     id: str = Field(pattern=SLUG)
     name: str = Field(min_length=2)
     description: str = ""
 
 
-class Qualification(BaseModel):
+class Qualification(Strict):
     required_fields: list[str]
     min_budget_usd: int = Field(ge=0)
     max_start_within_months: int = Field(ge=0, le=36)
@@ -62,7 +68,7 @@ class Qualification(BaseModel):
         return v
 
 
-class RepPolicy(BaseModel):
+class RepPolicy(Strict):
     id: str = Field(pattern=SLUG)
     name: str = Field(min_length=2)
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+$")
@@ -70,17 +76,17 @@ class RepPolicy(BaseModel):
     active: bool = True
 
 
-class RoutingRule(BaseModel):
+class RoutingRule(Strict):
     service: str
     rep: str
 
 
-class Routing(BaseModel):
+class Routing(Strict):
     rules: list[RoutingRule] = []
     fallback: str = "least_open_leads"
 
 
-class WorkingHours(BaseModel):
+class WorkingHours(Strict):
     timezone: str
     days: list[str]
     start: str = Field(pattern=r"^\d{2}:\d{2}$")
@@ -110,7 +116,7 @@ class WorkingHours(BaseModel):
         return self
 
 
-class Meeting(BaseModel):
+class Meeting(Strict):
     title: str = "Intro call"
     duration_minutes: int = Field(ge=15, le=120)
     min_notice_hours: int = Field(ge=0, le=72)
@@ -118,11 +124,11 @@ class Meeting(BaseModel):
     slots_to_offer: int = Field(ge=1, le=5)
 
 
-class ConversationRules(BaseModel):
+class ConversationRules(Strict):
     max_follow_up_questions: int = Field(default=4, ge=1, le=10)
 
 
-class Policy(BaseModel):
+class Policy(Strict):
     company_name: str = Field(min_length=2)
     description: str = ""
     services: list[Service] = Field(min_length=1)
@@ -175,7 +181,10 @@ def parse_policy(source_yaml: str) -> Policy:
     try:
         raw = yaml.safe_load(source_yaml)
     except yaml.YAMLError as exc:
-        raise PolicyError([f"YAML syntax error: {exc}"])
+        mark = getattr(exc, "problem_mark", None)
+        where = f"line {mark.line + 1}, column {mark.column + 1}: " if mark else ""
+        problem = getattr(exc, "problem", None) or "invalid YAML"
+        raise PolicyError([f"YAML syntax error at {where}{problem}"])
     if not isinstance(raw, dict):
         raise PolicyError(["policy must be a YAML mapping at the top level"])
     try:

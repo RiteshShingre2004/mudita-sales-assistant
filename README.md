@@ -4,8 +4,9 @@ A prototype sales assistant for a fictional analytics consultancy, Lumen Analyti
 It turns inquiries from Instagram, WhatsApp and email into qualified, assigned leads
 and confirmed meetings, with a human able to take over at any point.
 
-> Status: **Step 1 of 8 complete**: skeleton, data model, editable policy, inbox UI,
-> action log, takeover guard, deploy config. Channels, LLM and calendar follow in later steps.
+> Status: **Step 2 of 8 built, waiting for live Google credentials.** Step 1: skeleton, data
+> model, editable policy, inbox UI, takeover guard. Step 2: Gmail inbox channel (OAuth,
+> polling, threaded replies, operator composer). The LLM and calendar follow in later steps.
 > This README grows with each step.
 
 ## Stack
@@ -47,6 +48,29 @@ presented as live channel integrations.
 | `app/api.py` | Dashboard JSON API (behind HTTP Basic login). |
 | `app/static`, `app/templates` | Inbox, conversation, lead file, policy editor. |
 
+| `app/inbound.py` | One entry point for every inbound message on any channel: contact lookup, dedupe, logging. |
+| `app/outbound.py` | Sends on the conversation's own channel; takeover guard for automatic messages; failed/uncertain sends are recorded, never silently retried. |
+| `app/google_oauth.py` | Google sign-in, token refresh, expiry detection. |
+| `app/channels/gmail.py` | Gmail polling and threaded replies. |
+| `app/poller.py` | Background loop (every 20 s) plus "Check inbox now". |
+
+### Email channel: approach
+
+**Polling Gmail's history API rather than push.** Gmail push needs a Pub/Sub topic and
+subscription, and the push message only says *something* changed, so you still call
+`history.list`. Polling the same history cursor every 20 seconds is simpler and just as
+exact. The cursor advances only after every message in a batch is stored; a failure
+mid-batch repeats the batch next time, and the dedupe rule drops what was already stored.
+
+Mail that is never answered: our own sent mail, drafts, spam, auto-replies
+(`Auto-Submitted`), bulk or list mail (`Precedence`, `List-Id`, `List-Unsubscribe`) and
+`no-reply@` senders. Replies keep the Gmail thread (`threadId`, `In-Reply-To`,
+`References`) and quoted earlier text is stripped before the message is stored.
+
+One consent screen grants Gmail and Calendar access for the same test account. If a token
+refresh returns `invalid_grant`, the connection is marked **Sign-in expired**, the top bar
+turns red and a toast appears; a Reconnect button is in the Connections menu.
+
 ### Integrity rules enforced by the database
 
 - **No cross-channel merging.** Contacts are unique per `(channel, external_id)`.
@@ -67,6 +91,10 @@ presented as live channel integrations.
 ## Known limitations (so far)
 
 - Tables are created with `create_all`, not migrations (fine for a prototype).
+- Google refresh tokens for apps in **Testing** mode expire after 7 days. Reconnect Google
+  from the Connections menu if the demo runs longer.
+- Tests use an in-memory fake of Google's endpoints (`tests/fake_google.py`). That is test
+  scaffolding only; the running app always talks to the real Gmail API.
 - Render's free web service sleeps after ~15 minutes idle. The first webhook after
   sleep is slow; Meta retries undelivered webhooks, and duplicates are dropped by the
   message uniqueness rule.

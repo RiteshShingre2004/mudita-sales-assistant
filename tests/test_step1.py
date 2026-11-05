@@ -32,7 +32,19 @@ def test_unknown_specialty_and_bad_timezone_are_rejected():
 def test_yaml_syntax_error_is_readable():
     with pytest.raises(PolicyError) as e:
         parse_policy("company_name: [unclosed")
-    assert "YAML syntax error" in e.value.errors[0]
+    assert e.value.errors[0].startswith("YAML syntax error at line 1")
+
+
+def test_misspelled_policy_key_is_rejected_not_ignored():
+    with pytest.raises(PolicyError) as e:
+        parse_policy(DEFAULT.replace("min_budget_usd: 5000", "min_budjet_usd: 5000"))
+    assert any("min_budjet_usd" in err for err in e.value.errors)
+
+
+def test_validate_endpoint_does_not_save(client):
+    r = client.post("/api/policy/validate", json={"yaml": DEFAULT.replace("rep: priya", "rep: ceo", 1)})
+    assert r.json()["valid"] is False
+    assert client.get("/api/policy").json()["version"] == 1
 
 
 def test_first_boot_seeds_policy_and_reps(session):

@@ -11,10 +11,12 @@
       <p class="version" id="version"></p>
     </div>
     <label class="sr-only" for="policy-yaml">Policy (YAML)</label>
-    <textarea id="policy-yaml" spellcheck="false" autocomplete="off"></textarea>
+    <textarea id="policy-yaml" spellcheck="false" autocomplete="off" aria-describedby="editor-keys"></textarea>
+    <p class="hint" id="editor-keys">Tab indents (press Esc first to move focus out). Ctrl + S saves. Problems are checked as you type.</p>
     <div class="policy-actions">
       <button type="button" class="primary" id="save">Save policy</button>
       <button type="button" id="revert">Discard edits</button>
+      <p class="validity" id="validity" aria-live="polite"></p>
       <p id="save-status" role="status" aria-live="polite"></p>
     </div>
     <ul class="errors" id="errors" aria-live="polite"></ul>

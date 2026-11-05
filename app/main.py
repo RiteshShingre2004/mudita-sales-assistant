@@ -1,18 +1,21 @@
+import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from app.api import router as api_router
 from app.auth import require_operator
+from app.config import settings
 from app.db import SessionLocal, init_db
+from app.oauth_routes import router as oauth_router
 from app.policy import get_active_policy_row
+from app.templating import templates
 
 BASE = Path(__file__).parent
-templates = Jinja2Templates(directory=BASE / "templates")
 
 
 @asynccontextmanager
@@ -20,12 +23,22 @@ async def lifespan(_: FastAPI):
     init_db()
     with SessionLocal() as s:
         get_active_policy_row(s)  # seeds policy v1 + reps on first boot
+    poller = None
+    if settings.app_env != "test":
+        from app.poller import run_forever
+
+        poller = asyncio.create_task(run_forever())
     yield
+    if poller:
+        poller.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await poller
 
 
 app = FastAPI(title="Lumen sales assistant", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 app.include_router(api_router)
+app.include_router(oauth_router)
 
 
 @app.get("/healthz")
