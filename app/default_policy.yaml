@@ -1,0 +1,68 @@
+# Business policy for the fictional consultancy.
+# Edit this in the dashboard (Policy page). Every save is validated and versioned.
+# The LLM only reads this policy; it can never change it, add services, or invent staff.
+
+company_name: Lumen Analytics Co.
+description: >
+  A small analytics consultancy that builds BI dashboards, data warehouses
+  and forecasting models for mid-sized companies.
+
+services:
+  - id: bi_dashboards
+    name: BI dashboards and reporting
+    description: Power BI / Looker / Metabase dashboards, KPI design, reporting automation.
+  - id: data_warehouse
+    name: Data warehouse setup
+    description: Warehouse design (BigQuery, Snowflake, Postgres), ELT pipelines, data modelling.
+  - id: forecasting_ml
+    name: Forecasting and machine learning
+    description: Demand forecasting, churn models, ML proof-of-concepts.
+
+qualification:
+  # A lead is QUALIFIED only when every required field is known and every rule passes.
+  required_fields: [service, budget_usd, start_within_months, role]
+  min_budget_usd: 5000
+  max_start_within_months: 6
+  eligible_roles: [decision_maker, influencer]
+  # Inquiries of these kinds are NOT QUALIFIED regardless of anything else.
+  disqualifying_intents: [job_application, student_project, vendor_pitch, spam]
+
+reps:
+  - id: priya
+    name: Priya Nair
+    email: priya@lumen-analytics.example
+    specialties: [bi_dashboards]
+    active: true
+  - id: daniel
+    name: Daniel Brooks
+    email: daniel@lumen-analytics.example
+    specialties: [data_warehouse, forecasting_ml]
+    active: true
+
+routing:
+  # Rules are checked top to bottom. First match wins.
+  rules:
+    - service: bi_dashboards
+      rep: priya
+    - service: data_warehouse
+      rep: daniel
+    - service: forecasting_ml
+      rep: daniel
+  # Used when no rule matches: "least_open_leads" or a rep id.
+  fallback: least_open_leads
+
+working_hours:
+  timezone: Asia/Kolkata
+  days: [mon, tue, wed, thu, fri]
+  start: "10:00"
+  end: "18:00"
+
+meeting:
+  title: Lumen Analytics intro call
+  duration_minutes: 30
+  min_notice_hours: 4
+  horizon_days: 7
+  slots_to_offer: 3
+
+conversation:
+  max_follow_up_questions: 4

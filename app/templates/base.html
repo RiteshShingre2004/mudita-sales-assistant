@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Lumen sales desk{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="page-{{ page }}">
+  <header class="topbar">
+    <a class="brand" href="/">Lumen sales desk</a>
+    <nav class="nav" aria-label="Main">
+      <a href="/" {% if page == 'inbox' %}aria-current="page"{% endif %}>Inbox</a>
+      <a href="/policy" {% if page == 'policy' %}aria-current="page"{% endif %}>Business policy</a>
+    </nav>
+    <ul class="connections" id="connections" aria-label="Connection status"></ul>
+  </header>
+  {% block content %}{% endblock %}
+  <script src="/static/common.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

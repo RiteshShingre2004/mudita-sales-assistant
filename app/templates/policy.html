@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Business policy | Lumen sales desk{% endblock %}
+{% block content %}
+<main class="policy-page">
+  <section class="policy-editor">
+    <div class="policy-head">
+      <div>
+        <h1>Business policy</h1>
+        <p class="hint">Services, qualifying rules, reps, routing, hours and meeting rules. The assistant reads this; it can never change it. Every save is checked and kept as a new version.</p>
+      </div>
+      <p class="version" id="version"></p>
+    </div>
+    <label class="sr-only" for="policy-yaml">Policy (YAML)</label>
+    <textarea id="policy-yaml" spellcheck="false" autocomplete="off"></textarea>
+    <div class="policy-actions">
+      <button type="button" class="primary" id="save">Save policy</button>
+      <button type="button" id="revert">Discard edits</button>
+      <p id="save-status" role="status" aria-live="polite"></p>
+    </div>
+    <ul class="errors" id="errors" aria-live="polite"></ul>
+  </section>
+
+  <section class="policy-summary" aria-label="Policy as the assistant sees it">
+    <h2>As the assistant sees it</h2>
+    <div id="summary"></div>
+  </section>
+</main>
+{% endblock %}
+{% block scripts %}<script src="/static/policy.js"></script>{% endblock %}

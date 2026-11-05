@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<main class="desk" id="desk">
+  <section class="pane list-pane" aria-label="Inquiries">
+    <div class="pane-head">
+      <h1>Inquiries</h1>
+      <select id="channel-filter" aria-label="Filter by channel">
+        <option value="">All channels</option>
+        <option value="email">Email</option>
+        <option value="whatsapp">WhatsApp</option>
+        <option value="instagram">Instagram</option>
+      </select>
+    </div>
+    <ul class="conv-list" id="conv-list"></ul>
+  </section>
+
+  <section class="pane thread-pane" aria-label="Conversation">
+    <div class="pane-head thread-head" id="thread-head">
+      <button class="back" id="back" type="button">Back to inquiries</button>
+      <div id="thread-title"></div>
+      <div id="control"></div>
+    </div>
+    <div id="paused-banner" class="paused-banner" hidden>You are in control. The assistant will not reply, offer slots or book meetings in this conversation.</div>
+    <ol class="thread" id="thread"></ol>
+  </section>
+
+  <aside class="pane lead-pane" aria-label="Lead file" id="lead-pane"></aside>
+</main>
+{% endblock %}
+{% block scripts %}<script src="/static/inbox.js"></script>{% endblock %}
