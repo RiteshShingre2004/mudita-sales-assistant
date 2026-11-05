@@ -39,6 +39,9 @@ class Settings:
     # Google (Gmail + Calendar) - used from Step 2 / Step 4
     google_client_id: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_ID"))
     google_client_secret: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_SECRET"))
+    # Only mail sent to this address (e.g. you+lumen@gmail.com) is treated as an inquiry.
+    # Everything else in the connected mailbox is ignored and never logged.
+    email_inbox_address: str = field(default_factory=lambda: _env("EMAIL_INBOX_ADDRESS").lower())
 
     # Meta (WhatsApp + Instagram) - used from Step 5 / Step 6
     meta_app_secret: str = field(default_factory=lambda: _env("META_APP_SECRET"))

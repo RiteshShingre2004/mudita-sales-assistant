@@ -67,6 +67,11 @@ Mail that is never answered: our own sent mail, drafts, spam, auto-replies
 `no-reply@` senders. Replies keep the Gmail thread (`threadId`, `In-Reply-To`,
 `References`) and quoted earlier text is stripped before the message is stored.
 
+**Personal mailbox safety.** With `EMAIL_INBOX_ADDRESS` set (for example `you+lumen@gmail.com`),
+only mail addressed to it, or replies in a thread the assistant already handles, is treated
+as an inquiry. Other mail is checked by its address headers only, never downloaded, stored
+or logged. Replies carry that address as `Reply-To`.
+
 One consent screen grants Gmail and Calendar access for the same test account. If a token
 refresh returns `invalid_grant`, the connection is marked **Sign-in expired**, the top bar
 turns red and a toast appears; a Reconnect button is in the Connections menu.
@@ -84,7 +89,7 @@ turns red and a toast appears; a Reconnect button is in the Connections menu.
 ## Environment variables
 
 `APP_ENV`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD`,
-`GROQ_API_KEY`, `GROQ_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`,
+`GROQ_API_KEY`, `GROQ_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
 `META_APP_SECRET`, `META_VERIFY_TOKEN`, `WHATSAPP_ACCESS_TOKEN`,
 `WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`.
 

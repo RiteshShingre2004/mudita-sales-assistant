@@ -165,3 +165,43 @@ def test_assistant_cannot_send_during_takeover(session, google):
     with pytest.raises(AutomationPaused):
         send_message(session, conv, "auto reply", author="assistant", actor="assistant")
     assert google.sent == []
+
+
+# ---------- personal mailbox safety (EMAIL_INBOX_ADDRESS) ----------
+
+@pytest.fixture()
+def plus_address(monkeypatch):
+    import dataclasses
+
+    from app.channels import gmail
+
+    monkeypatch.setattr(gmail, "settings", dataclasses.replace(gmail.settings, email_inbox_address="me+lumen@gmail.com"))
+
+
+def test_personal_mail_is_ignored_unread_and_unlogged(session, google, plus_address):
+    connect(session, google)
+    google.deliver(gmail_message("p1", "bank@bank.example", "Your statement", to="me@gmail.com"))
+    result = poll_once(session)
+    assert result["new"] == 0 and result["ignored"] == 1
+    assert session.query(Message).count() == 0
+    assert session.query(ActionLog).filter(ActionLog.action.in_(["email_skipped", "message_received"])).count() == 0
+    assert "get p1 full" not in google.calls  # body never downloaded
+
+
+def test_mail_to_assistant_address_and_thread_replies_are_handled(session, google, plus_address):
+    connect(session, google)
+    google.deliver(gmail_message("q1", "lead@example.com", "Need dashboards", to="Lumen <me+lumen@gmail.com>", ts=1))
+    poll_once(session)
+    # The lead replies to the plain address, but in the same thread: still handled.
+    google.deliver(gmail_message("q2", "lead@example.com", "Budget 10k", to="me@gmail.com", thread="t-q1", ts=2))
+    poll_once(session)
+    assert [m.body for m in session.query(Conversation).one().messages] == ["Need dashboards", "Budget 10k"]
+
+
+def test_replies_ask_leads_to_answer_the_assistant_address(session, google, plus_address):
+    connect(session, google)
+    google.deliver(gmail_message("r1", "lead@example.com", "Hi", to="me+lumen@gmail.com"))
+    poll_once(session)
+    send_message(session, session.query(Conversation).one(), "Hello!", author="human", actor="human:t")
+    mime = email.message_from_bytes(base64.urlsafe_b64decode(google.sent[0]["raw"]))
+    assert mime["Reply-To"] == "me+lumen@gmail.com"

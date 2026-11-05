@@ -20,9 +20,11 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import parseaddr
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.actions import log_action
+from app.config import settings
 from app.google_oauth import GoogleAPIError, get_row, google_request, set_status
 from app.inbound import InboundMessage, already_stored, record_inbound
 from app.models import Contact, Conversation, Message
@@ -175,7 +177,8 @@ def poll_once(session: Session, actor: str = "poller") -> dict:
         if exc.status_code != 404:
             raise
         # Cursor too old or missing: fall back to recent inbox mail, then restart the cursor.
-        listed = _get(session, f"{API}/messages", q=FALLBACK_QUERY, maxResults=25)
+        query = FALLBACK_QUERY + (f" to:{settings.email_inbox_address}" if settings.email_inbox_address else "")
+        listed = _get(session, f"{API}/messages", q=query, maxResults=25)
         ids = [m["id"] for m in listed.get("messages", [])]
         new_cursor = str(_get(session, f"{API}/profile")["historyId"])
         log_action(session, actor=actor, action="gmail_cursor_reset", level="warn",
@@ -186,6 +189,11 @@ def poll_once(session: Session, actor: str = "poller") -> dict:
     for mid in ids:
         if mid in skipped_ids or already_stored(session, "email", mid):
             result["duplicates"] += 1
+            continue
+        if not _is_for_assistant(session, mid):
+            # Personal mail in the same mailbox: skip silently, never log or store it.
+            skipped_ids.add(mid)
+            result["ignored"] = result.get("ignored", 0) + 1
             continue
         fetched.append(_get(session, f"{API}/messages/{mid}", format="full"))
     fetched.sort(key=lambda m: int(m.get("internalDate", "0")))
@@ -212,6 +220,24 @@ def poll_once(session: Session, actor: str = "poller") -> dict:
     return result
 
 
+def _is_for_assistant(session: Session, mid: str) -> bool:
+    """With EMAIL_INBOX_ADDRESS set, only mail addressed to it, or replies in a
+    thread the assistant already handles, counts. Reads headers only."""
+    inbox = settings.email_inbox_address
+    if not inbox:
+        return True
+    head = _get(session, f"{API}/messages/{mid}", format="metadata",
+                metadataHeaders=["To", "Cc", "Delivered-To"])
+    hdrs = " ".join(h["value"] for h in head.get("payload", {}).get("headers", [])
+                    if h["name"].lower() in ("to", "cc", "delivered-to")).lower()
+    if inbox in hdrs:
+        return True
+    thread = head.get("threadId")
+    return bool(thread) and session.scalar(
+        select(Conversation.id).where(Conversation.channel == "email", Conversation.thread_ref == thread)
+    ) is not None
+
+
 def _hand_to_pipeline(session: Session, conv: Conversation, message: Message) -> None:
     from app.pipeline import handle_inbound  # Step 3 fills this in
 
@@ -235,6 +261,8 @@ def send_email(session: Session, conv: Conversation, text: str) -> str:
     mail["To"] = contact.external_id
     mail["From"] = row.account
     mail["Subject"] = subject
+    if settings.email_inbox_address:
+        mail["Reply-To"] = settings.email_inbox_address  # keep the lead's replies on the assistant address
     if meta.get("rfc_message_id"):
         mail["In-Reply-To"] = meta["rfc_message_id"]
         refs = (meta.get("references", "") + " " + meta["rfc_message_id"]).strip()

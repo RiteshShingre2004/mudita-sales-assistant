@@ -11,12 +11,13 @@ def b64(s: str) -> str:
     return base64.urlsafe_b64encode(s.encode()).decode().rstrip("=")
 
 
-def gmail_message(mid, sender, body, *, subject="Inquiry", labels=("INBOX", "UNREAD"), headers=None, ts=1_700_000_000_000):
-    hdrs = [{"name": "From", "value": sender}, {"name": "Subject", "value": subject},
+def gmail_message(mid, sender, body, *, subject="Inquiry", labels=("INBOX", "UNREAD"), headers=None,
+                  ts=1_700_000_000_000, to="desk@lumen-test.example", thread=None):
+    hdrs = [{"name": "From", "value": sender}, {"name": "To", "value": to}, {"name": "Subject", "value": subject},
             {"name": "Message-ID", "value": f"<{mid}@mail.example>"}]
     for k, v in (headers or {}).items():
         hdrs.append({"name": k, "value": v})
-    return {"id": mid, "threadId": f"t-{mid}", "labelIds": list(labels), "internalDate": str(ts),
+    return {"id": mid, "threadId": thread or f"t-{mid}", "labelIds": list(labels), "internalDate": str(ts),
             "payload": {"mimeType": "multipart/alternative", "headers": hdrs,
                         "parts": [{"mimeType": "text/plain", "body": {"data": b64(body)}}]}}
 
@@ -65,7 +66,13 @@ class FakeGoogle:
             mid = path.rsplit("/", 1)[-1]
             if mid in self.fail_get_for:
                 return httpx.Response(500, json={"error": {"message": "backend error"}})
-            return httpx.Response(200, json=self.messages[mid])
+            fmt = request.url.params.get("format", "full")
+            self.calls.append(f"get {mid} {fmt}")
+            msg = self.messages[mid]
+            if fmt == "metadata":  # headers only, no body
+                payload = {"headers": msg["payload"]["headers"]}
+                return httpx.Response(200, json={**{k: v for k, v in msg.items() if k != "payload"}, "payload": payload})
+            return httpx.Response(200, json=msg)
         if path.endswith("/users/me/messages/send"):
             body = json.loads(request.content)
             self.sent.append(body)
