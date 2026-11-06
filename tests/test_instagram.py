@@ -188,9 +188,9 @@ def test_facebook_style_token_is_detected_and_used(client, session, monkeypatch,
 def test_token_without_a_linked_page_gets_a_clear_reason(client, session, monkeypatch):
     monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(FakeFacebookRoute(has_page=False).handler))
     r = client.post("/api/connections/instagram/link")
-    assert r.status_code == 502 and "Facebook Page" in r.json()["detail"]
+    assert r.status_code == 502 and "Page token" in r.json()["detail"]
     status = {c["provider"]: c for c in client.get("/api/connections").json()}["instagram"]
-    assert status["status"] == "error" and "Facebook Page" in status["error"]
+    assert status["status"] == "error" and "Page token" in status["error"]
 
 
 def test_page_token_is_used_directly(client, session, monkeypatch):
