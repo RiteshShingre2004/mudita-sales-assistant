@@ -5,8 +5,10 @@ consultancy, Lumen Analytics Co. It turns inquiries from Instagram, WhatsApp and
 qualified, assigned leads and confirmed calendar meetings, with a human able to take over at
 any point.
 
-**Assignment 02: three connected mini-agents.** Being built in the same application under its
-own route (`/agents`), as the brief allows. This README gains its section when it is done.
+**Assignment 02: three connected mini-agents.** An operations coordinator at
+[/agents](https://lumen-sales-assistant.onrender.com/agents), in the same application (one app, two
+routes, as the brief allows). An Intake, a Planning and a Review agent turn a fictional meeting
+transcript and company rules into a reviewed action plan.
 
 ---
 
@@ -21,6 +23,87 @@ own route (`/agents`), as the brief allows. This README gains its section when i
 
 The app is kept awake by an UptimeRobot check on `/healthz` every 5 minutes (Render's free plan
 otherwise sleeps after 15 minutes and would stop reading the inbox).
+
+## Assignment 02: three connected agents
+
+### What it does
+
+Open **Agents**, then **New run**. The sample meeting (a Lumen kickoff with Northwind Retail) and
+company rules are loaded; **Start run**. The sample deliberately contains a date conflict (go-live
+20 vs 27 Nov), an unowned deliverable, a client employee who cannot own a task, customer data
+that needs a security review, and a tempting weekend migration that breaks the "working days only"
+rule.
+
+| Agent | Input (built from persisted shared context) | Output (validated contract) |
+|---|---|---|
+| **Intake** | numbered transcript, meeting date | facts (decisions, requirements, constraints, deliverables, open questions), each with line references and an exact quote; conflicts; missing information |
+| **Planning** | verified facts of one context version, company rules, the session's private notes, and (on revision) its previous plan plus the corrections | tasks with owner, deadline, dependencies, source fact ids and flags; each owner and deadline marked **stated** (cites a fact) or **recommended**; recommendations; open questions |
+| **Review** | transcript, facts, rules, the plan, and the automatic rule checker's findings | verdict and specific corrections (task, problem, fix, rule/fact/line reference) |
+
+The Planning Agent never sees the transcript, only verified facts, so it cannot pick up
+something Intake did not ground.
+
+### How the agents collaborate
+
+```
+Intake ──facts v1──► Planning ──plan r1──► Review ──corrections──► Planning ──plan r2──► Review ──► approved
+   │                     ▲                    │                                              │
+   └─ code checks:       │                    └─ rule checker (code) findings are included;   └─ or, after max rounds,
+      quote in cited     │                       Review can't approve while any remain          unresolved issues for
+      lines; owners and  │                                                                       a person
+      dates must be      └── a person corrects a fact ─► context v2 ─► Planning and Review rerun on v2 (Intake reused)
+      stated there
+```
+
+- **Separate agents, not labels:** three LLM calls with different system prompts, inputs and
+  JSON schemas (Groq strict structured output), run in sequence by an orchestrator, with every
+  exchange stored as a handoff message.
+- **Validated handoffs:** each output is checked with pydantic and cross-reference checks (task
+  ids, cited fact ids, basis consistency). An invalid answer is sent back once with the exact
+  errors; if it is still invalid, the step fails visibly.
+- **Grounding in code:** Intake facts survive only if their quote is in the cited lines; an
+  owner counts only if the lines name them or they commit in the first person ("I can own…");
+  dates must appear in the lines. Being the speaker who mentions a task is not owning it.
+- **Code has the final word on the rules:** a deterministic checker (owners on the team, working
+  days, deadline window and order, security review before customer data, PM sign-off for
+  client-facing work, capacity, grounding of "stated" claims, dependency structure) runs on every
+  draft. A plan is approved only when the checker finds nothing **and** the Review Agent approves.
+- **Bounded:** at most `max_review_rounds` (3) Planning/Review rounds; anything still wrong is
+  surfaced as unresolved issues.
+
+### Shared context, persistence and recovery
+
+- Persisted per run: run id, transcript, rules, **versioned source facts** (`ag_contexts`), every
+  agent step with its input, output, attempts, tokens and cost (`ag_steps`), handoff messages
+  (`ag_messages`) and an orchestration log (`ag_events`).
+- **Resume without duplication:** a step is unique per (run, agent, context version, round). Resume
+  skips completed steps, reuses their outputs, and continues from the failed one. A server restart
+  marks running runs **interrupted**, and they are resumable.
+- **Correcting a fact:** creates context v(n+1), keeping the previous value. Only Planning and Review
+  rerun, and they read only v(n+1); older steps and messages stay visible, marked stale/superseded.
+- **Session isolation:** every run belongs to a session, and every API call goes through the session
+  that owns the run (another session gets 404). Each session's private notes are given only to its
+  own Planning Agent.
+
+### The required cases, and where to see them
+
+| Case | How to show it | Automated test |
+|---|---|---|
+| A complete three-agent run | Start a run with the sample | `test_REQUIRED_complete_run_with_a_rule_violation_sent_back` |
+| A rule violation sent back for correction | The sample's weekend migration is usually caught naturally; the labelled demo toggle **Inject a rule violation into the first plan draft** guarantees one | same test, and `test_seeded_violation_demo_is_labelled_and_corrected` |
+| A changed source fact propagating | Source facts > F1 > **Correct** > date 2026-11-20: the sign-off and dependent deadlines move | `test_REQUIRED_changed_fact_propagates_without_stale_context` |
+| Recovery after a simulated model failure | **Simulate a failure (demo)** (or the option in the New run form) > the run stops, clearly labelled SIMULATED > **Resume** | `test_REQUIRED_recovery_after_simulated_failure_without_duplicating_work` |
+| Two sessions don't share private context | Session A: private note + run; **New** session B: run; B's Planning input shows no notes, and A's run isn't reachable from B | `test_REQUIRED_two_sessions_do_not_share_private_context` |
+
+Also covered: the Review Agent can't approve a violating plan, invalid handoffs get one repair
+attempt, a real model outage followed by resume, bad rules rejected before any model call, and
+reset clearing only one session. **Reset this session** and **Load sample meeting** are in the UI.
+
+### Cost per run (Assignment 02)
+
+Five model calls in a typical run (Intake, Planning r1, Review r1, Planning r2, Review r2) on
+gpt-oss-120b, each about 2,000–5,000 input and 1,000–2,500 output tokens: roughly **$0.005–0.01
+per run**. Every run shows its exact cost in the UI (summed from each step's recorded usage).
 
 ## Assignment 01: what was shown working, live
 
@@ -167,6 +250,18 @@ token or permission errors, a wrong webhook secret, a calendar that cannot be re
 booking: each one sends nothing misleading, flags the conversation **Needs you** with the reason
 and a **Retry** button, and turns the affected connection red in the Connections menu.
 
+## Code layout (Assignment 02)
+
+| Module | Responsibility |
+|---|---|
+| `app/agents/agents.py` | The three agents: prompts, inputs, LLM calls with one repair attempt, Intake grounding |
+| `app/agents/schemas.py` | Strict JSON schemas and pydantic contracts for each handoff |
+| `app/agents/rules.py` | Company-rules parsing and the deterministic rule checker |
+| `app/agents/orchestrator.py` | Bounded loop, persistence, resume, corrections, simulated faults |
+| `app/agents/models.py` | Sessions, runs, context versions, steps, messages, events |
+| `app/agents/api.py`, `app/static/agents.js` | Session-scoped API and the live UI |
+| `app/agents/sample.py` | Sample meeting and company rules |
+
 ## Code layout (Assignment 01)
 
 | Module | Responsibility |
@@ -188,13 +283,13 @@ and a **Retry** button, and turns the affected connection red in the Connections
 
 ## Tests
 
-`pytest -q` runs 127 tests in about 5 seconds, against in-memory fakes of Google, Groq and Meta
+`pytest -q` runs 141 tests in about 9 seconds, against in-memory fakes of Google, Groq and Meta
 (`tests/fake_google.py`, `tests/fake_groq.py`, and fake Graph APIs inside the WhatsApp and Instagram
-tests). The fakes exist only in tests; the running app always talks to the real APIs. Tests named
-`test_REQUIRED_*` cover the brief's required cases: the full booking run, prompt injection,
-takeover during processing, repeated confirmation, and a newly occupied slot.
+tests; for Assignment 02 a fake that plays each agent from its system prompt). The fakes exist
+only in tests; the running app always talks to the real APIs. Tests named `test_REQUIRED_*` cover
+both briefs' required cases.
 
-## Cost per run
+## Cost per run (Assignment 01)
 
 Measured from the live action log (each `lead_assessed` entry stores token counts and cost):
 
