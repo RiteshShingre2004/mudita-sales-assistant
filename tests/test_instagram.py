@@ -204,3 +204,17 @@ def test_user_token_without_page_says_to_use_a_page_token(client, session, monke
     monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(FakeFacebookRoute(has_page=False).handler))
     detail = client.post("/api/connections/instagram/link").json()["detail"]
     assert "personal (user) token" in detail and "Generate next to your Page" in detail
+
+
+def test_user_token_answered_with_permission_error_still_finds_the_page(client, session, monkeypatch):
+    """Seen live: for a user token Meta answered the Page-field probe with a permission error."""
+    fake = FakeFacebookRoute()
+    original = fake.handler
+
+    def handler(request):
+        if request.url.host == "graph.facebook.com" and request.url.path == "/v23.0/me":
+            return httpx.Response(403, json={"error": {"code": 10, "message": "(#10) permission"}})
+        return original(request)
+
+    monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(handler))
+    assert client.post("/api/connections/instagram/link").json()["account"] == "@lumen.test"

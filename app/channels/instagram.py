@@ -61,11 +61,10 @@ def _find_page(session: Session, token: str) -> dict:
     try:  # Page tokens: /me is the Page itself and has the instagram_business_account field
         me = graph_post(session, PROVIDER, "me", token, None, base=FB_BASE, method="GET",
                         params={"fields": f"id,name,{ig_field}"}, record_health=False)
-    except MetaAPIError as exc:
-        if "nonexisting field" not in exc.reason:
-            raise MetaAPIError(f"Reading the token's account failed: {exc.reason} "
-                               "(needs pages_show_list and instagram_basic).")
-        me = None  # a user token: users have no such field
+    except MetaAPIError:
+        # A user token: Meta answers this Page-only field with "nonexisting field" or, depending
+        # on version, a permission error. Either way, look through the user's Pages instead.
+        me = None
     if me is not None:
         if not me.get("instagram_business_account"):
             raise MetaAPIError(f"This is a token for the Page '{me.get('name', '?')}', but it has no linked "
