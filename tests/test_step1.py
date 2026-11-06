@@ -115,6 +115,6 @@ def test_duplicate_channel_message_id_is_rejected(session):
 def test_dashboard_pages_render(client):
     assert client.get("/").status_code == 200
     assert client.get("/policy").status_code == 200
-    assert client.get("/healthz").json() == {"ok": True}
+    assert client.get("/healthz").json() == {"ok": True, "database": "ready"}
     conns = {c["provider"]: c["status"] for c in client.get("/api/connections").json()}
     assert conns["instagram"] == "not_configured"

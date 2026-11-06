@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import router as api_router
 from app.auth import require_operator
 from app.config import settings
-from app.db import SessionLocal, init_db
+from app.db import SessionLocal, describe_database, init_db
 from app.oauth_routes import router as oauth_router
 from app.policy import get_active_policy_row
 from app.templating import templates
@@ -19,21 +20,62 @@ from app.webhooks import router as webhook_router
 BASE = Path(__file__).parent
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
+log = logging.getLogger("uvicorn.error")  # shows in Render's logs
+DB_STATE = {"ready": False, "error": ""}
+
+
+def _prepare_database() -> None:
     init_db()
     with SessionLocal() as s:
         get_active_policy_row(s)  # seeds policy v1 + reps on first boot
-    poller = None
-    if settings.app_env != "test":
-        from app.poller import run_forever
 
-        poller = asyncio.create_task(run_forever())
+
+async def _connect_database(attempts: int) -> bool:
+    for i in range(1, attempts + 1):
+        try:
+            await asyncio.to_thread(_prepare_database)
+        except Exception as exc:
+            DB_STATE["error"] = f"{exc.__class__.__name__}: {str(exc).splitlines()[0][:200]}"
+            log.error("Database not ready (attempt %d/%d, %s): %s", i, attempts, describe_database(), DB_STATE["error"])
+            if i < attempts:
+                await asyncio.sleep(3)
+        else:
+            DB_STATE.update(ready=True, error="")
+            log.info("Database ready (%s)", describe_database())
+            return True
+    return False
+
+
+async def _keep_trying_then_start(start_background) -> None:
+    while not await _connect_database(attempts=1):
+        await asyncio.sleep(15)
+    start_background()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    log.info("Starting Lumen sales assistant (env=%s)", settings.app_env)
+    tasks: list[asyncio.Task] = []
+
+    def start_background() -> None:
+        if settings.app_env != "test":
+            from app.poller import run_forever
+
+            tasks.append(asyncio.create_task(run_forever()))
+            log.info("Inbox poller started")
+
+    # Bounded wait so the port always opens: a slow or missing database shows up
+    # in the logs and on /healthz instead of as a silent deploy time-out.
+    if await _connect_database(attempts=3):
+        start_background()
+    else:
+        log.error("Starting without a database; retrying every 15 s. Check DATABASE_URL and the database's status.")
+        tasks.append(asyncio.create_task(_keep_trying_then_start(start_background)))
     yield
-    if poller:
-        poller.cancel()
+    for t in tasks:
+        t.cancel()
         with contextlib.suppress(asyncio.CancelledError):
-            await poller
+            await t
 
 
 app = FastAPI(title="Lumen sales assistant", lifespan=lifespan)
@@ -45,7 +87,9 @@ app.include_router(webhook_router)
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    # 200 while the process is up, so Render can finish the deploy; the body says whether
+    # the database is reachable.
+    return {"ok": True, "database": "ready" if DB_STATE["ready"] else f"unavailable: {DB_STATE['error']}"}
 
 
 @app.get("/", response_class=HTMLResponse)
