@@ -178,6 +178,9 @@ def verify(raw: dict, policy: Policy, lead_messages: list[Message], slot_labels:
         # Only the lead's LATEST message can pick a slot.
         latest = lead_messages[-1:] if lead_messages else []
         mid = _find_quote(facts.slot_choice.quote, latest)
+        if mid is None and latest and facts.slot_choice.quote and \
+                _norm(facts.slot_choice.quote).strip(" .!") == _norm(latest[0].body).strip(" .!"):
+            mid = latest[0].id  # a one-character reply such as "3" is its own quote
         if facts.slot_choice.value in [*slot_labels, "none_work"] and mid is not None:
             out.fields["slot_choice"] = facts.slot_choice.value
             out.evidence["slot_choice"] = {"quote": facts.slot_choice.quote.strip(), "message_id": mid}

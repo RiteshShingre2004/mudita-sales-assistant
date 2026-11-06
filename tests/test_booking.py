@@ -206,3 +206,11 @@ def test_lead_qualified_before_times_were_offered_gets_times_on_next_message(ses
     assert reply.meta["kind"] == "slots" and "Reply with 1, 2 or 3" in reply.body
     conv = say(session, google, "late3", "2")
     assert session.query(Booking).one().status == "confirmed"
+
+
+def test_single_character_reply_is_accepted_as_its_own_quote(session, google, offered, groq):
+    from app.models import ActionLog
+    groq.extract = {**QUALIFIED, "slot_choice": {"value": "3", "quote": "3"}}
+    say(session, google, "one", "3")
+    assert not [e for e in session.query(ActionLog).filter_by(action="evidence_rejected") if "slot" in e.summary]
+    assert session.query(Booking).one().status == "confirmed"
