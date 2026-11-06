@@ -138,8 +138,9 @@ def test_long_text_is_trimmed_to_instagram_limit():
 class FakeFacebookRoute:
     """graph.instagram.com rejects the token (it is a Facebook token); graph.facebook.com serves a Page."""
 
-    def __init__(self, has_page=True):
+    def __init__(self, has_page=True, page_token_mode=False):
         self.has_page = has_page
+        self.page_token_mode = page_token_mode
         self.sent: list[tuple[str, dict, str]] = []
         self.subscribed: list[str] = []
 
@@ -152,9 +153,13 @@ class FakeFacebookRoute:
                      "instagram_business_account": {"id": OWN_ID, "username": "lumen.test"}}] if self.has_page else []
             return httpx.Response(200, json={"data": data})
         if path == "/v23.0/me":
-            return httpx.Response(200, json={"id": "USER1", "name": "Ritesh"})
+            if self.page_token_mode and auth == "Bearer test-ig-token":
+                return httpx.Response(200, json={"id": "PAGE1", "name": "Lumen Test",
+                                                 "instagram_business_account": {"id": OWN_ID, "username": "lumen.test"}})
+            return httpx.Response(400, json={"error": {"code": 100, "message":
+                                  "(#100) Tried accessing nonexisting field (instagram_business_account) on node type (User)"}})
         if path == "/v23.0/PAGE1/subscribed_apps":
-            assert auth == "Bearer page-token"
+            assert auth in ("Bearer page-token", "Bearer test-ig-token")
             self.subscribed.append(request.url.params["subscribed_fields"])
             return httpx.Response(200, json={"success": True})
         if path == "/v23.0/PAGE1/messages":
@@ -186,3 +191,16 @@ def test_token_without_a_linked_page_gets_a_clear_reason(client, session, monkey
     assert r.status_code == 502 and "Facebook Page" in r.json()["detail"]
     status = {c["provider"]: c for c in client.get("/api/connections").json()}["instagram"]
     assert status["status"] == "error" and "Facebook Page" in status["error"]
+
+
+def test_page_token_is_used_directly(client, session, monkeypatch):
+    fake = FakeFacebookRoute(page_token_mode=True)
+    monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(fake.handler))
+    assert client.post("/api/connections/instagram/link").json()["account"] == "@lumen.test"
+    assert fake.subscribed == ["messages"]
+
+
+def test_user_token_without_page_says_to_use_a_page_token(client, session, monkeypatch):
+    monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(FakeFacebookRoute(has_page=False).handler))
+    detail = client.post("/api/connections/instagram/link").json()["detail"]
+    assert "personal (user) token" in detail and "Generate next to your Page" in detail

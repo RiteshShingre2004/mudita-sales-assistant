@@ -51,24 +51,43 @@ def _link_instagram_login(session: Session) -> dict:
             "ig_user_id": str(me.get("user_id") or me.get("id", "")), "page_id": "", "page_token": ""}
 
 
-def _link_facebook_login(session: Session) -> dict:
-    token = settings.instagram_token
+_USE_PAGE_TOKEN = ("Use a Page token instead: Instagram API > API setup with Facebook login > "
+                   "Generate access tokens > Generate next to your Page.")
+
+
+def _find_page(session: Session, token: str) -> dict:
+    """Return {id, access_token, instagram_business_account} for a Page token or a user token."""
     ig_field = "instagram_business_account{id,username}"
-    page = None
-    try:  # a user or system-user token: look through the Pages it manages
-        pages = graph_post(session, PROVIDER, "me/accounts", token, None, base=FB_BASE, method="GET",
-                           params={"fields": f"id,name,access_token,{ig_field}"}, record_health=False)
-        page = next((p for p in pages.get("data", []) if p.get("instagram_business_account")), None)
-    except MetaAPIError:
-        pass
-    if page is None:  # maybe the token is itself a Page token
+    try:  # Page tokens: /me is the Page itself and has the instagram_business_account field
         me = graph_post(session, PROVIDER, "me", token, None, base=FB_BASE, method="GET",
                         params={"fields": f"id,name,{ig_field}"}, record_health=False)
-        if me.get("instagram_business_account"):
-            page = {**me, "access_token": token}
+    except MetaAPIError as exc:
+        if "nonexisting field" not in exc.reason:
+            raise
+        me = None  # a user token: users have no such field
+    if me is not None:
+        if not me.get("instagram_business_account"):
+            raise MetaAPIError(f"This is a token for the Page '{me.get('name', '?')}', but it has no linked "
+                               "Instagram professional account. Link Instagram in the Page's Linked accounts.")
+        return {**me, "access_token": token}
+
+    try:  # user tokens: look through the Pages it can manage
+        pages = graph_post(session, PROVIDER, "me/accounts", token, None, base=FB_BASE, method="GET",
+                           params={"fields": f"id,name,access_token,{ig_field}"}, record_health=False)
+    except MetaAPIError as exc:
+        raise MetaAPIError(f"This is a personal (user) token and it can't list your Pages ({exc.reason}). "
+                           + _USE_PAGE_TOKEN)
+    data = pages.get("data", [])
+    page = next((p for p in data if p.get("instagram_business_account")), None)
     if page is None:
-        raise MetaAPIError("This token works, but no Facebook Page with a linked Instagram professional account "
-                           "was found. Link your Instagram account to a Facebook Page, then generate the token again.")
+        seen = ", ".join(p.get("name", "?") for p in data) or "none"
+        raise MetaAPIError(f"This is a personal (user) token. Pages it can see: {seen}; none has a linked "
+                           "Instagram professional account visible to the app. " + _USE_PAGE_TOKEN)
+    return page
+
+
+def _link_facebook_login(session: Session) -> dict:
+    page = _find_page(session, settings.instagram_token)
     graph_post(session, PROVIDER, f"{page['id']}/subscribed_apps", page["access_token"], None, base=FB_BASE,
                params={"subscribed_fields": "messages"}, record_health=False)
     ig = page["instagram_business_account"]
@@ -86,9 +105,8 @@ def link_account(session: Session, actor: str = "system") -> str:
         try:
             found = _link_facebook_login(session)
         except MetaAPIError as second:
-            reason = second.reason if "no Facebook Page" in second.reason else (
-                f"Instagram rejected the token ({first.reason}) and so did Facebook ({second.reason}). "
-                "Generate a new token on the Instagram API setup page.")
+            reason = second.reason if any(k in second.reason for k in ("Page token", "user) token", "Facebook Page")) \
+                else (f"Instagram rejected the token ({first.reason}) and so did Facebook ({second.reason}).")
             set_health(session, PROVIDER, "error", reason)
             raise MetaAPIError(reason)
     row = _account(session)
