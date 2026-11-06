@@ -2,113 +2,118 @@
 {% block title %}Agents | Lumen sales desk{% endblock %}
 {% block content %}
 <main class="ag" id="ag">
-  <aside class="pane ag-left" aria-label="Sessions and runs">
-    <div class="ag-block">
-      <label class="ag-label" for="session-select">Session</label>
-      <div class="ag-row">
+  <aside class="ag-rail" aria-label="Sessions and runs">
+    <div class="rail-session">
+      <label class="rail-label" for="session-select">Session</label>
+      <div class="rail-row">
         <select id="session-select"></select>
-        <button type="button" id="new-session">New</button>
-      </div>
-      <label class="ag-label" for="notes">Private notes</label>
-      <textarea id="notes" rows="3" placeholder="Context only this session's agents can see"></textarea>
-      <div class="ag-row ag-row-end">
-        <span class="ag-hint" id="notes-state"></span>
-        <button type="button" id="save-notes">Save notes</button>
+        <button type="button" id="new-session" class="icon-btn" title="New session (its runs and notes are private to it)" aria-label="New session">+</button>
       </div>
     </div>
-    <div class="ag-block ag-runs-head">
-      <h2>Runs</h2>
-      <button type="button" class="primary" id="new-run">New run</button>
-    </div>
-    <ul class="ag-runs" id="runs"></ul>
-    <div class="ag-block ag-reset">
-      <button type="button" id="reset" class="danger-link">Reset this session</button>
-    </div>
+
+    <button type="button" class="primary rail-new" id="new-run">New run</button>
+
+    <div class="rail-label rail-runs-label">Runs</div>
+    <ul class="rail-runs" id="runs"></ul>
+
+    <details class="rail-settings" id="settings">
+      <summary>Session settings</summary>
+      <label class="rail-label" for="notes">Private notes <span class="lock">only this session's Planning Agent sees them</span></label>
+      <textarea id="notes" rows="4" placeholder="e.g. Client prefers Monday check-ins"></textarea>
+      <div class="rail-row rail-row-end">
+        <span class="hint" id="notes-state"></span>
+        <button type="button" id="save-notes">Save</button>
+      </div>
+      <button type="button" id="reset" class="danger-link">Reset this session…</button>
+    </details>
   </aside>
 
-  <section class="pane ag-center" aria-label="Run">
-    <!-- new run form -->
-    <form id="run-form" class="ag-form" hidden>
-      <div class="ag-form-head">
-        <h1>New run</h1>
-        <button type="button" id="load-sample">Load sample meeting</button>
-      </div>
-      <label class="ag-label" for="f-title">Title</label>
-      <input id="f-title" type="text" placeholder="Northwind Retail: sales dashboard kickoff">
-      <label class="ag-label" for="f-transcript">Meeting transcript</label>
-      <textarea id="f-transcript" rows="12" spellcheck="false" placeholder="Speaker: what they said, one line each"></textarea>
-      <details class="ag-rules-box">
-        <summary>Company rules (YAML)</summary>
-        <textarea id="f-rules" rows="14" spellcheck="false"></textarea>
-      </details>
-      <fieldset class="ag-faults">
-        <legend>Simulated faults <span>(demo only, clearly labelled in the run)</span></legend>
-        <label>Fail the next model call of
-          <select id="f-fail">
-            <option value="">no agent</option>
-            <option value="intake">Intake Agent</option>
-            <option value="planning">Planning Agent</option>
-            <option value="review">Review Agent</option>
-          </select>
-        </label>
-        <label class="ag-check"><input type="checkbox" id="f-seed"> Inject a rule violation into the first plan draft</label>
-      </fieldset>
-      <div class="ag-row ag-row-end">
-        <p class="ag-hint" id="form-error" role="alert"></p>
-        <button type="submit" class="primary">Start run</button>
+  <section class="ag-main" aria-label="Run">
+    <!-- new run -->
+    <form id="run-form" class="nr" hidden>
+      <header class="nr-head">
+        <div>
+          <p class="eyebrow">New run</p>
+          <h1>Turn a meeting into a reviewed plan</h1>
+          <p class="hint">Intake pulls out what was said, Planning drafts the plan, and Review checks it against the company rules and sends fixes back.</p>
+        </div>
+        <button type="button" id="load-sample">Reload sample</button>
+      </header>
+
+      <div class="nr-grid">
+        <div class="nr-card nr-main">
+          <label class="field-label" for="f-title">Title</label>
+          <input id="f-title" type="text" placeholder="Northwind Retail: sales dashboard kickoff">
+          <label class="field-label" for="f-transcript">Meeting transcript <span class="hint">one line per speaker turn</span></label>
+          <textarea id="f-transcript" rows="16" spellcheck="false" placeholder="Speaker: what they said"></textarea>
+        </div>
+        <div class="nr-side">
+          <details class="nr-card">
+            <summary>Company rules <span class="hint">YAML</span></summary>
+            <textarea id="f-rules" rows="16" spellcheck="false"></textarea>
+          </details>
+          <details class="nr-card nr-demo">
+            <summary>Demo faults <span class="hint">labelled in the run</span></summary>
+            <label class="field-label" for="f-fail">Fail the first model call of</label>
+            <select id="f-fail">
+              <option value="">no agent</option>
+              <option value="intake">Intake Agent</option>
+              <option value="planning">Planning Agent</option>
+              <option value="review">Review Agent</option>
+            </select>
+            <label class="check"><input type="checkbox" id="f-seed"> Put a weekend deadline into the first draft</label>
+          </details>
+          <p class="form-error" id="form-error" role="alert"></p>
+          <button type="submit" class="primary big">Start run</button>
+        </div>
       </div>
     </form>
 
-    <!-- run view -->
+    <!-- run -->
     <div id="run-view" hidden>
-      <header class="ag-run-head">
-        <div>
+      <header class="rh">
+        <div class="rh-text">
           <h1 id="run-title"></h1>
-          <p class="ag-hint" id="run-meta"></p>
+          <p class="rh-meta" id="run-meta"></p>
         </div>
-        <div class="ag-run-actions" id="run-actions"></div>
+        <div class="rh-actions" id="run-actions"></div>
       </header>
-      <div class="ag-error" id="run-error" role="alert" hidden></div>
+      <div class="banner err" id="run-error" role="alert" hidden></div>
 
-      <ol class="pipeline" id="pipeline" aria-label="Agents"></ol>
+      <ol class="flow" id="flow" aria-label="Agents"></ol>
 
-      <div class="ag-split">
-        <section class="ag-io" aria-label="Selected step">
-          <div class="ag-io-head">
-            <h2 id="io-title">Step</h2>
-            <div class="ag-tabs" role="tablist">
-              <button type="button" role="tab" data-io="output" aria-selected="true">Output</button>
-              <button type="button" role="tab" data-io="input" aria-selected="false">Input</button>
-            </div>
-          </div>
-          <div id="io-body" class="ag-io-body"></div>
-        </section>
-        <section class="ag-talk" aria-label="Collaboration">
-          <h2>Handoffs and feedback</h2>
-          <ol id="messages" class="ag-messages"></ol>
-          <details class="ag-events">
-            <summary>Orchestration log</summary>
-            <ol id="events"></ol>
-          </details>
-        </section>
-      </div>
-    </div>
+      <div id="outcome"></div>
 
-    <div id="empty" class="empty ag-empty" hidden>
-      <strong>No run selected</strong>
-      Start a run with the sample meeting, or pick one on the left.
+      <nav class="tabs" role="tablist" aria-label="Run details">
+        <button type="button" role="tab" data-tab="plan">Plan</button>
+        <button type="button" role="tab" data-tab="story">How they got there</button>
+        <button type="button" role="tab" data-tab="facts">Source facts</button>
+        <button type="button" role="tab" data-tab="transcript">Transcript</button>
+        <button type="button" role="tab" data-tab="log">Log</button>
+      </nav>
+      <section class="tab" id="tab-plan"></section>
+      <section class="tab" id="tab-story" hidden></section>
+      <section class="tab" id="tab-facts" hidden></section>
+      <section class="tab" id="tab-transcript" hidden></section>
+      <section class="tab" id="tab-log" hidden></section>
     </div>
   </section>
 
-  <aside class="pane ag-right" aria-label="Plan and sources" id="right" hidden>
-    <div class="ag-tabs ag-tabs-right" role="tablist">
-      <button type="button" role="tab" data-tab="plan" aria-selected="true">Final plan</button>
-      <button type="button" role="tab" data-tab="facts" aria-selected="false">Source facts</button>
-      <button type="button" role="tab" data-tab="transcript" aria-selected="false">Transcript</button>
+  <!-- step detail drawer -->
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-label="Step detail" aria-hidden="true">
+    <header class="drawer-head">
+      <div>
+        <p class="eyebrow" id="drawer-kicker"></p>
+        <h2 id="drawer-title"></h2>
+      </div>
+      <button type="button" class="icon-btn" id="drawer-close" aria-label="Close">×</button>
+    </header>
+    <div class="seg" role="tablist">
+      <button type="button" role="tab" data-io="output">What it returned</button>
+      <button type="button" role="tab" data-io="input">What it received</button>
     </div>
-    <div id="tab-plan" class="ag-tab"></div>
-    <div id="tab-facts" class="ag-tab" hidden></div>
-    <div id="tab-transcript" class="ag-tab" hidden></div>
+    <div class="drawer-body" id="drawer-body"></div>
   </aside>
 </main>
 {% endblock %}
