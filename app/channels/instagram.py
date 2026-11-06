@@ -123,6 +123,14 @@ def link_account(session: Session, actor: str = "system") -> str:
                  "page_id": found["page_id"]}
     row.credentials = {"page_token": found["page_token"]} if found["page_token"] else {}
     how = "Facebook Page" if found["mode"] == "facebook_login" else "Instagram Login"
+    if found["warning"] and (row.state or {}).get("last_webhook_at"):
+        # DMs have already been arriving, so the Page is evidently subscribed; don't raise an alarm.
+        log_action(session, actor=actor, action="instagram_linked",
+                   summary=f"Instagram {row.account} linked via {how}. The Page subscription could not be "
+                           "re-confirmed (missing pages_manage_metadata), but DMs are already arriving.")
+        session.commit()
+        set_health(session, PROVIDER, "ok")
+        return row.account
     if found["warning"]:
         log_action(session, actor=actor, action="instagram_linked", level="warn",
                    summary=f"Instagram {row.account} linked via {how}, but not subscribed to messages")

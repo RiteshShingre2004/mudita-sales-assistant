@@ -283,3 +283,20 @@ def test_conversation_can_be_deleted_with_its_data(client, session, ig, groq):
     session.expire_all()
     assert session.query(Conversation).count() == 0 and session.query(Message).count() == 0
     assert session.query(Contact).count() == 0
+
+
+def test_subscription_warning_is_dropped_once_dms_have_arrived(client, session, monkeypatch, groq):
+    fake = FakeFacebookRoute()
+    original = fake.handler
+
+    def handler(request):
+        if request.url.path == "/v23.0/PAGE1/subscribed_apps":
+            return httpx.Response(403, json={"error": {"code": 200, "message": "(#200) permission"}})
+        return original(request)
+
+    monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(handler))
+    client.post("/api/connections/instagram/link")
+    post(client, dm(text="hello"))                     # a real DM arrives
+    assert client.post("/api/connections/instagram/link").json()["account"] == "@lumen.test"
+    status = {c["provider"]: c for c in client.get("/api/connections").json()}["instagram"]
+    assert status["status"] == "ok"
