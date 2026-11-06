@@ -123,6 +123,8 @@ def test_dashboard_pages_render(client):
 def test_public_privacy_pages_need_no_login(client):
     assert "Privacy policy" in client.get("/privacy").text
     assert "Delete my data" in client.get("/data-deletion").text
+    assert "fictional company" in client.get("/about").text
+    assert "Terms of service" in client.get("/terms").text
 
 
 def test_healthz_answers_head_for_uptime_monitors(client):

@@ -124,3 +124,13 @@ def privacy(request: Request):
 @app.get("/data-deletion", response_class=HTMLResponse)
 def data_deletion(request: Request):
     return templates.TemplateResponse(request, "data_deletion.html", {})
+
+
+@app.get("/about", response_class=HTMLResponse)
+def about(request: Request):
+    return templates.TemplateResponse(request, "about.html", {})
+
+
+@app.get("/terms", response_class=HTMLResponse)
+def terms(request: Request):
+    return templates.TemplateResponse(request, "terms.html", {})
