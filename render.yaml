@@ -36,6 +36,8 @@ services:
         sync: false
       - key: EMAIL_INBOX_ADDRESS
         sync: false
+      - key: GOOGLE_CALENDAR_ID
+        value: primary
       - key: META_APP_SECRET
         sync: false
       - key: META_VERIFY_TOKEN

@@ -60,13 +60,14 @@ def template(plan: ReplyPlan, policy: Policy) -> str:
         }.get(plan.decline_reason, "Thanks for reaching out. This isn't something we can help with.")
     elif plan.kind == "qualified":
         about = f" for {plan.service_name}" if plan.service_name else ""
-        body = (f"Thanks, that's everything I need. You sound like a great fit{about}. "
-                f"{plan.rep_name} from our team will be your contact, and I'll follow up with times for a "
-                f"{policy.meeting.duration_minutes}-minute intro call.")
+        body = (f"Thanks, that's everything I need. You sound like a great fit{about}, and "
+                f"{plan.rep_name} from our team will be your contact.")
     else:  # handoff
         body = "Thanks for your patience. A member of our team will reply to you personally."
-    sign = f"\n\n{policy.company_name}" if plan.channel == "email" else ""
-    return f"{hi}\n\n{body}{sign}" if plan.channel == "email" else f"{hi} {body}"
+    if plan.channel == "email":
+        sign = "" if plan.kind == "qualified" else f"\n\n{policy.company_name}"  # qualified: slots follow
+        return f"{hi}\n\n{body}{sign}"
+    return f"{hi} {body}"
 
 
 _WRITER = """You write one short reply for {company}'s sales inbox on {channel}.
@@ -98,8 +99,8 @@ def _writer_task(plan: ReplyPlan, policy: Policy) -> tuple[str, list[str]]:
         task = "Politely say we are not the right fit, for the reason in FACTS. Do not offer a call."
     elif plan.kind == "qualified":
         facts.append(f"Their contact at our company: {plan.rep_name}")
-        facts.append(f"Next step: we will send times for a {policy.meeting.duration_minutes}-minute intro call")
-        task = "Thank them, say they look like a great fit, name their contact, and say times for a call will follow."
+        task = ("Thank them, say they look like a great fit, and name their contact. Do not mention any times "
+                "or dates; available times are added below your message automatically.")
     else:
         task = "Say a member of the team will reply personally. Nothing else."
     return task, facts
@@ -143,8 +144,13 @@ def compose(session: Session, plan: ReplyPlan, policy: Policy) -> tuple[str, dic
     """Return (text, info). info says whether the LLM draft or the template was used."""
     fallback = template(plan, policy)
     task, facts = _writer_task(plan, policy)
-    style = ("Start with 'Hi <first name>,' (or 'Hi,'), keep it under 90 words, and end with a line "
-             f"'{policy.company_name}'.") if plan.channel == "email" else "Keep it under 50 words, no sign-off."
+    if plan.channel != "email":
+        style = "Keep it under 50 words, no sign-off."
+    elif plan.kind == "qualified":
+        style = "Start with 'Hi <first name>,' (or 'Hi,'), keep it under 60 words, no sign-off."
+    else:
+        style = (f"Start with 'Hi <first name>,' (or 'Hi,'), keep it under 90 words, and end with a line "
+                 f"'{policy.company_name}'.")
     try:
         result = chat([
             {"role": "system", "content": _WRITER.format(company=policy.company_name, channel=plan.channel, style=style)},

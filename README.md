@@ -4,10 +4,10 @@ A prototype sales assistant for a fictional analytics consultancy, Lumen Analyti
 It turns inquiries from Instagram, WhatsApp and email into qualified, assigned leads
 and confirmed meetings, with a human able to take over at any point.
 
-> Status: **Step 5 of 8 built (Instagram).** Step 1: skeleton, data model, editable policy, inbox UI,
+> Status: **Step 6 of 8 built (calendar booking).** Step 1: skeleton, data model, editable policy, inbox UI,
 > takeover guard. Step 2: Gmail inbox channel. Step 3: LLM extraction with verified evidence,
 > rule-based qualification, routing and grounded replies. Step 4: WhatsApp Cloud API.
-> Step 5: Instagram Direct. Next: calendar booking. This README grows with each step.
+> Step 5: Instagram Direct. Step 6: Google Calendar booking. Next: hardening and hand-in. This README grows with each step.
 
 ## Stack
 
@@ -62,6 +62,8 @@ presented as live channel integrations.
 | `app/meta.py` | Meta webhook signature check, Graph API calls, readable error codes, connection health. |
 | `app/webhooks.py` | Public webhook endpoints: verification handshake, signature check, store, then process in the background. |
 | `app/channels/whatsapp.py` | WhatsApp payload parsing, delivery receipts, sending. |
+| `app/gcal.py` | Google Calendar free/busy, slot generation, event lookup and creation. |
+| `app/booking.py` | Offering slots, reading the choice, booking exactly once (see below). |
 | `app/channels/instagram.py` | Instagram DM parsing (echo filtering), username lookup, sending, account linking. |
 
 ### How a message becomes a decision (Step 3)
@@ -176,6 +178,37 @@ second account added as an **Instagram tester** on the Meta app.
 - Replies are trimmed to Instagram's 1,000-byte limit. A reply outside the 24-hour window
   (error subcode 2018278) is explained in plain words and the conversation is flagged.
 
+### Calendar booking (Step 6)
+
+Google Calendar API, chosen over Calendly or Cal.com because it lets us **set the event id**,
+which makes booking idempotent at the provider. Availability comes from one test calendar
+(`GOOGLE_CALENDAR_ID`, default the connected account's primary calendar), standing in for the
+team calendar; the fictional reps have no calendars of their own, so the rep is recorded in the
+event description.
+
+```
+qualified ─► free/busy for the booking window ─► 3 free slots (working hours, notice,
+             not on offer to anyone else, spread across days), listed by code
+lead replies ─► "2" / "option 2" / "the second one" (code)  or  a quoted natural choice (LLM)
+             ─► vague ("yes", "1 or 2") → "which one?"  ·  "none work" → different times
+chosen slot ─► same slot already booked? → "you're all set" (no new event)
+            ─► re-check free/busy → taken since offered? → "just taken" + fresh slots
+            ─► takeover guard
+            ─► booking row (pending) → create event with id = hash(conversation, slot)
+                 200 → confirmed · 409 → already exists → confirmed
+                 timeout → uncertain → GET the id: found → confirmed;
+                           verified absent → create again with the same id
+            ─► confirmation on the lead's channel
+```
+
+- **No duplicate bookings:** one booking row per idempotency key (unique in the database) and
+  the same key as the Google event id, so even two racing confirmations produce one event.
+- **No conflicting bookings:** availability is re-checked immediately before creating.
+- **No blind retries:** an uncertain create is settled by looking the event up first.
+- **One meeting per lead;** any further "yes" or "2" gets a reminder of the booked time.
+- Failures (calendar not connected, no free times, booking failed or still uncertain) send
+  nothing misleading and flag the conversation with the reason and a Retry action.
+
 ### Integrity rules enforced by the database
 
 - **No cross-channel merging.** Contacts are unique per `(channel, external_id)`.
@@ -189,7 +222,7 @@ second account added as an **Instagram tester** on the Meta app.
 ## Environment variables
 
 `APP_ENV`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD`,
-`GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REPLY_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
+`GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REPLY_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALENDAR_ID`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
 `META_APP_SECRET`, `META_VERIFY_TOKEN`, `META_GRAPH_VERSION` (default `v23.0`),
 `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_SECRET`.
 
@@ -199,6 +232,8 @@ second account added as an **Instagram tester** on the Meta app.
   there are no full migrations (fine for a prototype).
 - The per-conversation lock is in-process. That is correct for the single Render instance;
   running several instances would need a database lock instead.
+- Rescheduling and cancelling are out of scope; one meeting per lead.
+- Slots are shown in the business time zone (IST), labelled with it.
 - Budgets in other currencies use fixed rates from the policy, not live exchange rates.
 - Google refresh tokens for apps in **Testing** mode expire after 7 days. Reconnect Google
   from the Connections menu if the demo runs longer.
