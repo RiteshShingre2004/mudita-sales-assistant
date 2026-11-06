@@ -20,6 +20,7 @@ from app.meta import MetaAPIError, explain, graph_post, set_health
 from app.models import Contact, Conversation, Message
 
 PROVIDER = "whatsapp"
+META_SAMPLE_PHONE_ID = "123456123"  # dummy id in Meta's dashboard test payloads
 
 _NON_TEXT = {
     "image": "a photo", "video": "a video", "audio": "a voice message", "document": "a document",
@@ -99,6 +100,12 @@ def store_webhook(session: Session, payload: dict) -> list[int]:
     others: list[str] = []
     messages, statuses = parse_webhook(payload, others)
     if others and not messages and not statuses:
+        if others[0] == META_SAMPLE_PHONE_ID:  # the dashboard's "Test" button uses this dummy id
+            set_health(session, PROVIDER, "ok")
+            log_action(session, actor="webhook", action="whatsapp_test_webhook",
+                       summary="Received Meta's test webhook. The connection from Meta to this app works.")
+            session.commit()
+            return []
         set_health(session, PROVIDER, "error",
                    f"A message arrived for phone number ID {others[0]}, but WHATSAPP_PHONE_NUMBER_ID is "
                    f"{settings.whatsapp_phone_number_id or 'not set'}. Set it to the test number's Phone number ID.")

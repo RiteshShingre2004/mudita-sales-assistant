@@ -182,3 +182,9 @@ def test_last_webhook_time_is_shown(client, session, graph):
     post(client, wa_payload())
     after = {c["provider"]: c for c in client.get("/api/connections").json()}["whatsapp"]
     assert after["last_webhook_at"] and after["status"] == "ok"
+
+
+def test_meta_dashboard_test_webhook_counts_as_ok(client, session, graph):
+    post(client, wa_payload(phone_id="123456123"))
+    status = {c["provider"]: c for c in client.get("/api/connections").json()}["whatsapp"]
+    assert status["status"] == "ok" and status["last_webhook_at"]
