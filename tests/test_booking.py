@@ -189,3 +189,20 @@ def test_calendar_disconnected_still_replies_and_flags(session, google, groq):
     conv = session.query(Conversation).one()
     assert "follow up shortly with times" in last_reply(conv).body
     assert "calendar could not be read" in conv.attention
+
+
+def test_lead_qualified_before_times_were_offered_gets_times_on_next_message(session, google, groq):
+    """Seen live: a lead qualified while the calendar was unavailable (or before booking existed)
+    must get times when they write again, not be left waiting."""
+    groq.down = False
+    groq.extract = QUALIFIED
+    groq.writer = "Hi Anika,\n\nThanks! You look like a great fit, and Priya Nair will be your contact."
+    google.busy_hook = lambda fake: (_ for _ in ()).throw(httpx.ConnectError("calendar down"))
+    conv = say(session, google, "late1", FIRST)
+    assert "follow up shortly with times" in last_reply(conv).body
+    google.busy_hook = None
+    conv = say(session, google, "late2", "Any update on the call?")
+    reply = last_reply(conv)
+    assert reply.meta["kind"] == "slots" and "Reply with 1, 2 or 3" in reply.body
+    conv = say(session, google, "late3", "2")
+    assert session.query(Booking).one().status == "confirmed"

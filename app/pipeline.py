@@ -222,7 +222,9 @@ def _first_offer(session: Session, conv: Conversation, lead: Lead, policy, rep_n
     plan = ReplyPlan(kind="qualified", channel=conv.channel, lead_name=conv.contact.display_name,
                      rep_name=rep_name, service_name=service.name if service else "")
     if _assistant_messages(conv, "qualified"):
-        flag(session, conv, "The lead replied, but no meeting times are open. Please follow up.")
+        # Already introduced (e.g. qualified before booking existed, or the calendar was down then):
+        # offer times now rather than leaving the lead waiting.
+        _reoffer(session, conv, lead, policy, f"Here are times for your call with {rep_name}.")
         return
     intro, info = compose(session, plan, policy)
     if info["source"] == "template":
