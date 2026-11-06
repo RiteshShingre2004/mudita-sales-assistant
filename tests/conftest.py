@@ -12,7 +12,11 @@ os.environ.pop("DASHBOARD_PASSWORD", None)
 os.environ["GOOGLE_CLIENT_ID"] = "test-client-id"       # fake values; Google calls are mocked
 os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
 os.environ["GROQ_API_KEY"] = "test-groq-key"  # fake; every Groq call goes to tests/fake_groq.py
-for _k in ("WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "INSTAGRAM_ACCESS_TOKEN", "EMAIL_INBOX_ADDRESS"):
+os.environ["META_APP_SECRET"] = "test-app-secret"          # fake Meta app; Graph calls are mocked
+os.environ["META_VERIFY_TOKEN"] = "test-verify-token"
+os.environ["WHATSAPP_ACCESS_TOKEN"] = "test-wa-token"
+os.environ["WHATSAPP_PHONE_NUMBER_ID"] = "1379451971922417"
+for _k in ("INSTAGRAM_ACCESS_TOKEN", "EMAIL_INBOX_ADDRESS"):
     os.environ.pop(_k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

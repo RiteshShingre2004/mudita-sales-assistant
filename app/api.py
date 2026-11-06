@@ -111,7 +111,7 @@ def get_conversation(conversation_id: int, session: Session = Depends(get_sessio
         "messages": [
             {"id": m.id, "direction": m.direction, "author": m.author, "body": m.body,
              "send_status": m.send_status, "error": m.error, "at": _iso(m.created_at),
-             "reply_source": (m.meta or {}).get("reply_source")}
+             "reply_source": (m.meta or {}).get("reply_source"), "delivery": (m.meta or {}).get("delivery")}
             for m in c.messages
         ],
         "lead": _lead_out(c.lead),
@@ -260,14 +260,15 @@ def update_policy(body: PolicyIn, session: Session = Depends(get_session),
 _PROVIDERS = {
     "email": ("Gmail inbox", lambda: bool(settings.google_client_id and settings.google_client_secret), "google", "oauth"),
     "calendar": ("Google Calendar", lambda: bool(settings.google_client_id and settings.google_client_secret), "google", "oauth"),
-    "whatsapp": ("WhatsApp", lambda: bool(settings.whatsapp_token and settings.whatsapp_phone_number_id), "whatsapp", "env"),
+    "whatsapp": ("WhatsApp", lambda: bool(settings.whatsapp_token and settings.whatsapp_phone_number_id
+                                          and settings.meta_app_secret and settings.meta_verify_token), "whatsapp", "env"),
     "instagram": ("Instagram", lambda: bool(settings.instagram_token), "instagram", "env"),
     "llm": ("Groq LLM", lambda: bool(settings.groq_api_key), "llm", "env"),
 }
 _ENV_NAMES = {
     "email": "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET",
     "calendar": "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET",
-    "whatsapp": "WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID",
+    "whatsapp": "WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, META_APP_SECRET, META_VERIFY_TOKEN",
     "instagram": "INSTAGRAM_ACCESS_TOKEN",
     "llm": "GROQ_API_KEY",
 }

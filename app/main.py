@@ -14,6 +14,7 @@ from app.db import SessionLocal, init_db
 from app.oauth_routes import router as oauth_router
 from app.policy import get_active_policy_row
 from app.templating import templates
+from app.webhooks import router as webhook_router
 
 BASE = Path(__file__).parent
 
@@ -39,6 +40,7 @@ app = FastAPI(title="Lumen sales assistant", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 app.include_router(api_router)
 app.include_router(oauth_router)
+app.include_router(webhook_router)
 
 
 @app.get("/healthz")

@@ -4,10 +4,10 @@ A prototype sales assistant for a fictional analytics consultancy, Lumen Analyti
 It turns inquiries from Instagram, WhatsApp and email into qualified, assigned leads
 and confirmed meetings, with a human able to take over at any point.
 
-> Status: **Step 3 of 8 built.** Step 1: skeleton, data model, editable policy, inbox UI,
+> Status: **Step 4 of 8 built (WhatsApp).** Step 1: skeleton, data model, editable policy, inbox UI,
 > takeover guard. Step 2: Gmail inbox channel. Step 3: LLM extraction with verified evidence,
-> rule-based qualification, routing and grounded replies. Next: WhatsApp, Instagram, then
-> calendar booking. This README grows with each step.
+> rule-based qualification, routing and grounded replies. Step 4: WhatsApp Cloud API.
+> Next: Instagram, then calendar booking. This README grows with each step.
 
 ## Stack
 
@@ -59,6 +59,9 @@ presented as live channel integrations.
 | `app/replies.py` | Code decides what to say; the LLM words it; the draft is checked or replaced by a template. |
 | `app/pipeline.py` | Ties it together per inbound message, with a per-conversation lock. |
 | `app/migrate.py` | Adds new columns to an existing database on start-up. |
+| `app/meta.py` | Meta webhook signature check, Graph API calls, readable error codes, connection health. |
+| `app/webhooks.py` | Public webhook endpoints: verification handshake, signature check, store, then process in the background. |
+| `app/channels/whatsapp.py` | WhatsApp payload parsing, delivery receipts, sending. |
 
 ### How a message becomes a decision (Step 3)
 
@@ -131,6 +134,30 @@ One consent screen grants Gmail and Calendar access for the same test account. I
 refresh returns `invalid_grant`, the connection is marked **Sign-in expired**, the top bar
 turns red and a toast appears; a Reconnect button is in the Connections menu.
 
+### WhatsApp channel (Step 4)
+
+WhatsApp Cloud API with Meta's free **test number**, sending to recipients added to the test
+number's allowed list (the brief's "authorised test senders").
+
+- **Webhook** `GET/POST /webhooks/whatsapp`. The GET handshake checks `META_VERIFY_TOKEN`.
+  Every POST must carry a valid `X-Hub-Signature-256` (HMAC-SHA256 of the raw body with
+  `META_APP_SECRET`); unsigned or forged calls get 401 and are logged.
+- **Fast acknowledgement.** New messages are stored (deduped by `wamid`) and Meta gets its
+  200 immediately; the LLM pipeline runs afterwards in the background, so a slow model
+  never causes Meta to re-deliver. If it does re-deliver, the duplicate is dropped.
+- **Non-text messages** (photos, voice notes) are stored with a note saying the assistant
+  only reads text, and their captions are kept. Emoji reactions are ignored.
+- **Delivery receipts** update each reply (sent, delivered, read). A `failed` receipt marks
+  the reply failed and flags the conversation with the reason.
+- **Readable errors.** Graph error codes become plain explanations in the UI, for example
+  131047 (outside the 24-hour window, so only templates are allowed), 131030 (number not on
+  the test number's allowed list) and 190 (token expired; the WhatsApp connection turns red).
+- Only messages for our own `phone_number_id` are processed.
+
+**24-hour rule.** WhatsApp allows free-form replies only within 24 hours of the lead's last
+message. The assistant always answers inside that window. An operator reply after 24 hours
+fails with a clear explanation; sending approved templates is out of scope for this prototype.
+
 ### Integrity rules enforced by the database
 
 - **No cross-channel merging.** Contacts are unique per `(channel, external_id)`.
@@ -145,8 +172,8 @@ turns red and a toast appears; a Reconnect button is in the Connections menu.
 
 `APP_ENV`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD`,
 `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REPLY_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
-`META_APP_SECRET`, `META_VERIFY_TOKEN`, `WHATSAPP_ACCESS_TOKEN`,
-`WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`.
+`META_APP_SECRET`, `META_VERIFY_TOKEN`, `META_GRAPH_VERSION` (default `v23.0`),
+`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`.
 
 ## Known limitations (so far)
 
@@ -158,7 +185,7 @@ turns red and a toast appears; a Reconnect button is in the Connections menu.
 - Google refresh tokens for apps in **Testing** mode expire after 7 days. Reconnect Google
   from the Connections menu if the demo runs longer.
 - Tests use in-memory fakes of Google's and Groq's endpoints (`tests/fake_google.py`,
-  `tests/fake_groq.py`). That is test scaffolding only; the running app always talks to the
+  `tests/fake_groq.py`, and a fake Graph API in `tests/test_whatsapp.py`). That is test scaffolding only; the running app always talks to the
   real APIs.
 - Render's free web service sleeps after ~15 minutes idle. The first webhook after
   sleep is slow; Meta retries undelivered webhooks, and duplicates are dropped by the

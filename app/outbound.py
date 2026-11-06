@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from app.actions import log_action
 from app.google_oauth import GoogleAPIError, GoogleNotConnected
 from app.guards import require_automation_allowed
+from app.meta import MetaAPIError
 from app.models import Conversation, Message, utcnow
 
 
@@ -26,6 +27,10 @@ def _send_on_channel(session: Session, conv: Conversation, text: str) -> str:
         from app.channels.gmail import send_email
 
         return send_email(session, conv, text)
+    if conv.channel == "whatsapp":
+        from app.channels.whatsapp import send_whatsapp
+
+        return send_whatsapp(session, conv, text)
     raise ChannelNotAvailable(f"Sending on {conv.channel} is not connected yet")
 
 
@@ -43,7 +48,7 @@ def send_message(session: Session, conv: Conversation, text: str, *, author: str
         provider_id = _send_on_channel(session, conv, text)
     except httpx.TimeoutException:
         msg.send_status, msg.error = "uncertain", "The channel did not answer in time. It may have been delivered; check before re-sending."
-    except (GoogleNotConnected, GoogleAPIError, ChannelNotAvailable, httpx.HTTPError) as exc:
+    except (GoogleNotConnected, GoogleAPIError, MetaAPIError, ChannelNotAvailable, httpx.HTTPError) as exc:
         msg.send_status, msg.error = "failed", str(exc)
     else:
         msg.channel_message_id, msg.send_status = provider_id, "sent"

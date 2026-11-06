@@ -117,4 +117,4 @@ def test_dashboard_pages_render(client):
     assert client.get("/policy").status_code == 200
     assert client.get("/healthz").json() == {"ok": True}
     conns = {c["provider"]: c["status"] for c in client.get("/api/connections").json()}
-    assert conns["whatsapp"] == "not_configured"
+    assert conns["instagram"] == "not_configured"

@@ -110,7 +110,7 @@ function renderThread(c) {
   }
   els.thread.innerHTML = c.messages.map((m) => `
     <li class="msg ${m.direction === "out" ? "out" : "in"} ${esc(m.author)}" id="m${m.id}">
-      <div class="msg-meta">${esc(AUTHOR_LABEL[m.author] || m.author)}${m.reply_source === "template" ? " (safe template)" : ""}, ${esc(fmtDateTime(m.at))}${m.send_status === "sending" ? ", sending" : ""}</div>
+      <div class="msg-meta">${esc(AUTHOR_LABEL[m.author] || m.author)}${m.reply_source === "template" ? " (safe template)" : ""}, ${esc(fmtDateTime(m.at))}${m.send_status === "sending" ? ", sending" : ""}${m.delivery && m.send_status === "sent" ? `, ${esc(m.delivery)}` : ""}</div>
       <div class="msg-body">${esc(m.body)}</div>
       ${m.send_status === "failed" ? `<div class="msg-error">Not delivered: ${esc(m.error || "unknown error")}</div>` : ""}
       ${m.send_status === "uncertain" ? `<div class="msg-error">Delivery unknown: ${esc(m.error)}</div>` : ""}
