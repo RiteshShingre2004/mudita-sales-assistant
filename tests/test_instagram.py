@@ -236,3 +236,50 @@ def test_missing_page_subscription_permission_still_links_with_a_warning(client,
     row = session.get(Connection, "instagram")
     session.refresh(row)
     assert row.state["page_id"] == "PAGE1"    # sending still works
+
+
+# ---------- only authorised test senders (personal account safety) ----------
+
+@pytest.fixture()
+def allow_only(monkeypatch):
+    import dataclasses
+
+    from app.channels import instagram
+
+    def set_list(value):
+        monkeypatch.setattr(instagram, "settings", dataclasses.replace(instagram.settings, instagram_allowed_senders=value))
+    return set_list
+
+
+def test_dm_from_someone_not_on_the_list_is_ignored_and_not_stored(client, session, ig, groq, allow_only):
+    allow_only("my.test.lead")
+    groq.down = False
+    groq.writer = "Hi! What do you need?"
+    post(client, dm(text="hey bro, dinner tonight?"))
+    assert session.query(Message).count() == 0 and ig.sent == []
+    log = session.query(ActionLog).filter_by(action="instagram_ignored").one()
+    assert "dinner" not in log.summary and "studio.mira" not in log.summary
+
+
+def test_listed_test_sender_is_answered(client, session, ig, groq, allow_only):
+    allow_only("@Studio.Mira, someone.else")
+    groq.down = False
+    groq.writer = "Hi! What do you need?"
+    post(client, dm(text="Do you do dashboards?"))
+    assert session.query(Message).count() == 2 and len(ig.sent) == 1
+
+
+def test_empty_allowlist_is_flagged_in_connections(client):
+    ig_status = {c["provider"]: c for c in client.get("/api/connections").json()}["instagram"]
+    assert "INSTAGRAM_ALLOWED_SENDERS" in ig_status["note"]
+
+
+def test_conversation_can_be_deleted_with_its_data(client, session, ig, groq):
+    groq.down = False
+    groq.writer = "Hi! What do you need?"
+    post(client, dm(text="hello"))
+    conv_id = session.query(Conversation).one().id
+    assert client.delete(f"/api/conversations/{conv_id}").json() == {"deleted": True}
+    session.expire_all()
+    assert session.query(Conversation).count() == 0 and session.query(Message).count() == 0
+    assert session.query(Contact).count() == 0

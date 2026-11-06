@@ -175,6 +175,9 @@ second account added as an **Instagram tester** on the Meta app.
 - **Echoes are skipped.** Instagram sends our own replies back as `is_echo` messages; they are
   ignored, as are deletions, reactions and read receipts. DMs are deduped by `mid`.
 - The sender's `@username` is looked up for display; if that fails the IGSID is shown.
+- **Authorised test senders only.** `INSTAGRAM_ALLOWED_SENDERS` lists the test accounts the assistant
+  may answer. DMs from anyone else are ignored and never stored, so a personal account's friends
+  never receive automatic replies. Connections shows a warning while the list is empty.
 - Replies are trimmed to Instagram's 1,000-byte limit. A reply outside the 24-hour window
   (error subcode 2018278) is explained in plain words and the conversation is flagged.
 
@@ -232,6 +235,7 @@ chosen slot ─► same slot already booked? → "you're all set" (no new event)
   there are no full migrations (fine for a prototype).
 - The per-conversation lock is in-process. That is correct for the single Render instance;
   running several instances would need a database lock instead.
+- Operators can delete a conversation and everything stored about it (data deletion requests).
 - Rescheduling and cancelling are out of scope; one meeting per lead.
 - Slots are shown in the business time zone (IST), labelled with it.
 - Budgets in other currencies use fixed rates from the policy, not live exchange rates.

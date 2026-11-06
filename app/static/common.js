@@ -97,6 +97,7 @@ async function loadConnections() {
         <div class="conn-row"><strong>${esc(c.label)}</strong><span class="conn-state">${esc(CONN_LABEL[c.status] || c.status)}</span></div>
         ${c.account ? `<div class="conn-sub">${esc(c.account)}</div>` : ""}
         ${c.error && c.status !== "ok" ? `<div class="conn-sub conn-err">${esc(c.error)}</div>` : ""}
+        ${c.note ? `<div class="conn-sub conn-err">${esc(c.note)}</div>` : ""}
         ${c.last_checked_at && c.status === "ok" && c.provider === "email" ? `<div class="conn-sub">Inbox checked ${esc(fmtRelative(c.last_checked_at))}</div>` : ""}
         ${c.webhook && c.status !== "not_configured" ? `<div class="conn-sub">${c.last_webhook_at
           ? `Last message from Meta ${esc(fmtRelative(c.last_webhook_at))}`

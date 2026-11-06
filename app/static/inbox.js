@@ -285,7 +285,22 @@ function renderLead(c) {
     <div class="section">
       <h2>Action log</h2>
       ${c.log.length ? `<ol class="log">${logItems}</ol>` : `<p class="section-note">Nothing has happened in this conversation yet.</p>`}
+    </div>
+    <div class="section">
+      <h2>Data</h2>
+      <p class="section-note">Removes this conversation, the lead's details and its log from the app. Calendar events are not removed.</p>
+      <button type="button" id="delete-btn">Delete conversation</button>
     </div>`;
+  document.getElementById("delete-btn").addEventListener("click", async () => {
+    if (!confirm(`Delete this conversation with ${c.contact.name || c.contact.external_id}? This can't be undone.`)) return;
+    try {
+      await api(`/api/conversations/${c.id}`, { method: "DELETE" });
+      toast("Conversation deleted.", "ok");
+      select(null);
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  });
 }
 
 els.lead.addEventListener("click", (e) => {

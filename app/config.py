@@ -53,6 +53,13 @@ class Settings:
     instagram_token: str = field(default_factory=lambda: _env("INSTAGRAM_ACCESS_TOKEN"))
     # Instagram API with Instagram Login has its own app secret (App Dashboard > Instagram > API setup).
     instagram_app_secret: str = field(default_factory=lambda: _env("INSTAGRAM_APP_SECRET"))
+    # Comma-separated Instagram usernames (or IGSIDs) the assistant may answer. When set, DMs from
+    # anyone else are ignored and never stored, so a personal account's friends never get bot replies.
+    instagram_allowed_senders: str = field(default_factory=lambda: _env("INSTAGRAM_ALLOWED_SENDERS"))
+
+    @property
+    def instagram_allowlist(self) -> set[str]:
+        return {x.strip().lstrip("@").lower() for x in self.instagram_allowed_senders.split(",") if x.strip()}
 
     @property
     def is_production(self) -> bool:

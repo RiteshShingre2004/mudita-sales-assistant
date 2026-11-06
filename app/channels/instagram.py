@@ -199,17 +199,20 @@ def store_webhook(session: Session, payload: dict) -> list[int]:
     messages = parse_webhook(payload, _own_ids(session))
     if messages:
         set_health(session, PROVIDER, "ok")
+    allow = settings.instagram_allowlist
     for inbound in messages:
+        name = _lookup_username(session, inbound.external_id) if settings.instagram_token else ""
+        if allow and inbound.external_id.lower() not in allow and name.lstrip("@").lower() not in allow:
+            # Not an authorised test sender: don't store, don't reply, don't log who it was.
+            log_action(session, actor="webhook", action="instagram_ignored",
+                       summary="Ignored a DM from someone not on INSTAGRAM_ALLOWED_SENDERS")
+            session.commit()
+            continue
+        inbound.display_name = name or inbound.display_name
         stored = record_inbound(session, inbound, actor="webhook")
         if stored is None:
             continue
         conv, _ = stored
-        contact = session.get(Contact, conv.contact_id)
-        if contact.display_name == contact.external_id and settings.instagram_token:
-            name = _lookup_username(session, contact.external_id)
-            if name:
-                contact.display_name = name
-                session.commit()
         if conv.id not in to_process:
             to_process.append(conv.id)
     return to_process

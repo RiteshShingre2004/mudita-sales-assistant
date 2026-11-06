@@ -50,6 +50,8 @@ services:
         sync: false
       - key: INSTAGRAM_APP_SECRET
         sync: false
+      - key: INSTAGRAM_ALLOWED_SENDERS
+        sync: false
 
 databases:
   - name: lumen-db

@@ -195,6 +195,29 @@ def retry_assistant(conversation_id: int, session: Session = Depends(get_session
     return {"attention": c.attention or ""}
 
 
+@router.delete("/conversations/{conversation_id}")
+def delete_conversation(conversation_id: int, session: Session = Depends(get_session),
+                        operator: str = Depends(require_operator)):
+    """Remove a conversation and everything stored about it (data deletion requests, stray senders).
+    Calendar events already created are not touched."""
+    from app.models import Contact, Message
+
+    c = session.get(Conversation, conversation_id)
+    if c is None:
+        raise HTTPException(404, "Conversation not found")
+    contact_id, channel = c.contact_id, c.channel
+    for model in (Message, SlotOffer, Booking, ActionLog, Lead):
+        session.query(model).filter(model.conversation_id == c.id).delete(synchronize_session=False)
+    session.delete(c)
+    session.flush()
+    if not session.query(Conversation).filter_by(contact_id=contact_id).count():
+        session.query(Contact).filter_by(id=contact_id).delete(synchronize_session=False)
+    log_action(session, actor=f"human:{operator}", action="conversation_deleted", level="warn",
+               summary=f"Deleted a {channel} conversation and its data")
+    session.commit()
+    return {"deleted": True}
+
+
 # ---------- channels ----------
 
 @router.post("/channels/email/poll")
@@ -301,8 +324,12 @@ def connections(session: Session = Depends(get_session)):
         else:
             status, err = row.status, row.last_error
         last_webhook = ((row.state or {}).get("last_webhook_at") if row else None)
+        note = ""
+        if key == "instagram" and status != "not_configured" and not settings.instagram_allowlist:
+            note = ("Replies to everyone who DMs this account. Set INSTAGRAM_ALLOWED_SENDERS to your "
+                    "test accounts so friends never get automatic replies.")
         out.append({"provider": key, "label": label, "status": status, "error": err, "connect": connect,
-                    "webhook": key in ("whatsapp", "instagram"), "last_webhook_at": last_webhook,
+                    "webhook": key in ("whatsapp", "instagram"), "last_webhook_at": last_webhook, "note": note,
                     "account": row.account if row else "",
                     "last_checked_at": _iso(row.last_checked_at) if row else None})
     return out
