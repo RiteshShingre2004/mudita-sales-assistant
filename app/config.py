@@ -34,7 +34,9 @@ class Settings:
 
     # LLM
     groq_api_key: str = field(default_factory=lambda: _env("GROQ_API_KEY"))
-    groq_model: str = field(default_factory=lambda: _env("GROQ_MODEL", "llama-3.3-70b-versatile"))
+    # llama-3.3-70b-versatile was retired on Groq on 2026-08-16; gpt-oss supports strict JSON schema.
+    groq_model: str = field(default_factory=lambda: _env("GROQ_MODEL", "openai/gpt-oss-120b"))
+    groq_reply_model: str = field(default_factory=lambda: _env("GROQ_REPLY_MODEL", "openai/gpt-oss-20b"))
 
     # Google (Gmail + Calendar) - used from Step 2 / Step 4
     google_client_id: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_ID"))

@@ -11,11 +11,26 @@ os.environ["APP_ENV"] = "test"
 os.environ.pop("DASHBOARD_PASSWORD", None)
 os.environ["GOOGLE_CLIENT_ID"] = "test-client-id"       # fake values; Google calls are mocked
 os.environ["GOOGLE_CLIENT_SECRET"] = "test-client-secret"
-for _k in ("WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "INSTAGRAM_ACCESS_TOKEN", "GROQ_API_KEY"):
+os.environ["GROQ_API_KEY"] = "test-groq-key"  # fake; every Groq call goes to tests/fake_groq.py
+for _k in ("WHATSAPP_ACCESS_TOKEN", "WHATSAPP_PHONE_NUMBER_ID", "INSTAGRAM_ACCESS_TOKEN", "EMAIL_INBOX_ADDRESS"):
     os.environ.pop(_k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.db import Base, SessionLocal, engine, init_db  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def groq(monkeypatch):
+    """Every test gets a fake Groq. It starts 'down' so no test can reach a real model."""
+    import httpx
+
+    from app import llm
+    from tests.fake_groq import FakeGroq
+
+    fake = FakeGroq()
+    monkeypatch.setattr(llm, "HTTP_TRANSPORT", httpx.MockTransport(fake.handler))
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)
+    return fake
 
 
 @pytest.fixture()

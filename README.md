@@ -4,10 +4,10 @@ A prototype sales assistant for a fictional analytics consultancy, Lumen Analyti
 It turns inquiries from Instagram, WhatsApp and email into qualified, assigned leads
 and confirmed meetings, with a human able to take over at any point.
 
-> Status: **Step 2 of 8 built, waiting for live Google credentials.** Step 1: skeleton, data
-> model, editable policy, inbox UI, takeover guard. Step 2: Gmail inbox channel (OAuth,
-> polling, threaded replies, operator composer). The LLM and calendar follow in later steps.
-> This README grows with each step.
+> Status: **Step 3 of 8 built.** Step 1: skeleton, data model, editable policy, inbox UI,
+> takeover guard. Step 2: Gmail inbox channel. Step 3: LLM extraction with verified evidence,
+> rule-based qualification, routing and grounded replies. Next: WhatsApp, Instagram, then
+> calendar booking. This README grows with each step.
 
 ## Stack
 
@@ -47,12 +47,67 @@ presented as live channel integrations.
 | `app/actions.py` | Append-only action log. |
 | `app/api.py` | Dashboard JSON API (behind HTTP Basic login). |
 | `app/static`, `app/templates` | Inbox, conversation, lead file, policy editor. |
-
 | `app/inbound.py` | One entry point for every inbound message on any channel: contact lookup, dedupe, logging. |
 | `app/outbound.py` | Sends on the conversation's own channel; takeover guard for automatic messages; failed/uncertain sends are recorded, never silently retried. |
 | `app/google_oauth.py` | Google sign-in, token refresh, expiry detection. |
 | `app/channels/gmail.py` | Gmail polling and threaded replies. |
 | `app/poller.py` | Background loop (every 20 s) plus "Check inbox now". |
+| `app/llm.py` | Groq client: timeouts, one safe retry, token usage and cost, health shown in the UI. |
+| `app/extraction.py` | LLM fills a form of facts, each with a quote; code verifies every quote. |
+| `app/rules.py` | Qualification: plain code applying the policy. |
+| `app/routing.py` | Picks the rep from the policy's routing rules. |
+| `app/replies.py` | Code decides what to say; the LLM words it; the draft is checked or replaced by a template. |
+| `app/pipeline.py` | Ties it together per inbound message, with a per-conversation lock. |
+| `app/migrate.py` | Adds new columns to an existing database on start-up. |
+
+### How a message becomes a decision (Step 3)
+
+```
+inbound message ─► takeover? ─yes─► stay quiet (logged)
+        │no
+        ▼
+LLM: fill the form (service, budget, start, role, company, intent) + exact quote for each
+        ▼
+code: is every quote really in the lead's messages? are values on the policy's lists?
+      (anything failing is dropped and logged as "evidence rejected")
+        ▼
+code: policy rules ─► qualified / needs info / not qualified, with a reason per rule
+        ▼
+code: routing rules ─► rep (qualified only)
+        ▼
+code: next move (ask for ≤2 missing facts · decline once · introduce rep · hand to a person)
+        ▼
+LLM: word it from an allowed-facts list ─► code checks the draft ─► unsafe? use the template
+        ▼
+takeover guard again ─► send on the same channel
+```
+
+**The LLM has no authority.** It never sees or returns a status, never chooses a rep and
+never decides to book. Its only outputs are a form of facts and the wording of a reply.
+That is why prompt injection is contained by design rather than by prompt wording: the
+injection test feeds a *fully compromised* model answer (invented quotes, a fake
+`"status": "qualified"` key, a reply claiming a booking with "our CEO") and checks that the
+lead stays "needs info", no rep is assigned and the safe template is sent.
+
+**Grounding.** Every fact shown in the lead panel carries the lead's own words; select the
+quote to see it highlighted in the conversation. Reply drafts are rejected if they claim a
+booking, name a rep other than the assigned one, mention a job title like CEO, state an
+amount not in the policy, or contain links, emails or phone numbers.
+
+**Failures are visible.** If Groq is down, rate-limited, returns malformed output twice, or
+the key is wrong, nothing is sent; the conversation is flagged **Needs you** with the reason,
+the LLM connection turns red, and **Retry assistant** re-runs it once fixed. After
+`max_follow_up_questions` unanswered questions the assistant hands over to a person.
+
+**Models.** `openai/gpt-oss-120b` for extraction with strict JSON-schema output, and
+`openai/gpt-oss-20b` for reply wording. (`llama-3.3-70b-versatile` was retired on Groq on
+2026-08-16.) Both are configurable with `GROQ_MODEL` and `GROQ_REPLY_MODEL`.
+
+**Cost per inbound message (estimate).** About 1,500 input and 300 output tokens for
+extraction on gpt-oss-120b (~$0.0004) plus about 300 input and 100 output tokens for the reply
+on gpt-oss-20b (~$0.00005): **under $0.001 per message**, roughly **$0.002–0.004 per lead**
+over a 3–5 message conversation. Actual token counts and cost for every call are stored in the
+action log (`lead_assessed` entry, "llm_usage").
 
 ### Email channel: approach
 
@@ -84,22 +139,27 @@ turns red and a toast appears; a Reconnect button is in the Connections menu.
 - **No duplicate bookings.** Bookings are unique per `idempotency_key`; the same key
   becomes the Google Calendar event id (Step 4).
 - **Policy can't reference staff or services that don't exist.** Validation rejects the save
-  and the previous version stays active.
+  and the previous version stays active. Unknown or misspelled keys are rejected too.
 
 ## Environment variables
 
 `APP_ENV`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD`,
-`GROQ_API_KEY`, `GROQ_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
+`GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REPLY_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
 `META_APP_SECRET`, `META_VERIFY_TOKEN`, `WHATSAPP_ACCESS_TOKEN`,
 `WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`.
 
 ## Known limitations (so far)
 
-- Tables are created with `create_all`, not migrations (fine for a prototype).
+- Tables are created with `create_all`, plus a small add-missing-columns step on start-up;
+  there are no full migrations (fine for a prototype).
+- The per-conversation lock is in-process. That is correct for the single Render instance;
+  running several instances would need a database lock instead.
+- Budgets in other currencies use fixed rates from the policy, not live exchange rates.
 - Google refresh tokens for apps in **Testing** mode expire after 7 days. Reconnect Google
   from the Connections menu if the demo runs longer.
-- Tests use an in-memory fake of Google's endpoints (`tests/fake_google.py`). That is test
-  scaffolding only; the running app always talks to the real Gmail API.
+- Tests use in-memory fakes of Google's and Groq's endpoints (`tests/fake_google.py`,
+  `tests/fake_groq.py`). That is test scaffolding only; the running app always talks to the
+  real APIs.
 - Render's free web service sleeps after ~15 minutes idle. The first webhook after
   sleep is slow; Meta retries undelivered webhooks, and duplicates are dropped by the
   message uniqueness rule.

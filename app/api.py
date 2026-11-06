@@ -10,7 +10,7 @@ from app.actions import log_action
 from app.auth import require_operator
 from app.config import settings
 from app.db import get_session
-from app.models import ActionLog, Booking, Connection, Contact, Conversation, Lead, SlotOffer
+from app.models import ActionLog, Booking, Connection, Conversation, Lead, SlotOffer
 from app.policy import PolicyError, get_active_policy_row, save_policy
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_operator)])
@@ -78,6 +78,7 @@ def list_conversations(session: Session = Depends(get_session)):
             "lead_status": c.lead.status if c.lead else "new",
             "assigned_rep": c.lead.assigned_rep.name if c.lead and c.lead.assigned_rep else None,
             "automation_paused": c.automation_paused,
+            "attention": c.attention or "",
             "last_message_at": _iso(c.last_message_at),
         })
     return out
@@ -103,12 +104,14 @@ def get_conversation(conversation_id: int, session: Session = Depends(get_sessio
         "contact": {"name": c.contact.display_name, "external_id": c.contact.external_id,
                     "is_demo": c.contact.is_demo},
         "subject": c.subject,
+        "attention": c.attention or "",
         "automation_paused": c.automation_paused,
         "paused_by": c.paused_by,
         "paused_at": _iso(c.paused_at),
         "messages": [
             {"id": m.id, "direction": m.direction, "author": m.author, "body": m.body,
-             "send_status": m.send_status, "error": m.error, "at": _iso(m.created_at)}
+             "send_status": m.send_status, "error": m.error, "at": _iso(m.created_at),
+             "reply_source": (m.meta or {}).get("reply_source")}
             for m in c.messages
         ],
         "lead": _lead_out(c.lead),
@@ -139,6 +142,8 @@ def set_takeover(conversation_id: int, body: TakeoverIn, session: Session = Depe
     c.automation_paused = body.paused
     c.paused_by = operator if body.paused else ""
     c.paused_at = datetime.now(timezone.utc) if body.paused else None
+    if not body.paused:
+        c.attention = ""
     log_action(
         session,
         actor=f"human:{operator}",
@@ -171,6 +176,23 @@ def operator_reply(conversation_id: int, body: ReplyIn, session: Session = Depen
         raise HTTPException(409, "This is sample data; replies can only be sent in real conversations")
     msg = send_message(session, c, text[:5000], author="human", actor=f"human:{operator}")
     return {"send_status": msg.send_status, "error": msg.error}
+
+
+@router.post("/conversations/{conversation_id}/retry")
+def retry_assistant(conversation_id: int, session: Session = Depends(get_session),
+                    operator: str = Depends(require_operator)):
+    from app.pipeline import retry_latest
+
+    c = session.get(Conversation, conversation_id)
+    if c is None:
+        raise HTTPException(404, "Conversation not found")
+    if c.automation_paused:
+        raise HTTPException(409, "You are in control of this conversation. Hand it back first.")
+    if c.contact.is_demo:
+        raise HTTPException(409, "This is sample data")
+    retry_latest(session, c, actor=f"human:{operator}")
+    session.refresh(c)
+    return {"attention": c.attention or ""}
 
 
 # ---------- channels ----------

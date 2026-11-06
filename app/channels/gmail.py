@@ -239,9 +239,14 @@ def _is_for_assistant(session: Session, mid: str) -> bool:
 
 
 def _hand_to_pipeline(session: Session, conv: Conversation, message: Message) -> None:
-    from app.pipeline import handle_inbound  # Step 3 fills this in
+    from app.pipeline import flag, handle_inbound
 
-    handle_inbound(session, conv, message)
+    try:
+        handle_inbound(session, conv, message)
+    except Exception as exc:  # the message is stored; make sure a person sees it wasn't handled
+        session.rollback()
+        flag(session, conv, f"The assistant hit an unexpected error ({exc.__class__.__name__}). "
+                            "Reply yourself or use Retry.", level="error")
 
 
 # ---------- sending ----------

@@ -128,6 +128,29 @@ class ConversationRules(Strict):
     max_follow_up_questions: int = Field(default=4, ge=1, le=10)
 
 
+class Currency(Strict):
+    """Fixed conversion rates, used only to compare a stated budget with the minimum."""
+
+    rates_to_usd: dict[str, float] = Field(default_factory=lambda: {"INR": 0.012, "EUR": 1.08, "GBP": 1.27})
+
+    @field_validator("rates_to_usd")
+    @classmethod
+    def _codes(cls, v: dict[str, float]) -> dict[str, float]:
+        for code, rate in v.items():
+            if len(code) != 3 or not code.isupper() or not code.isalpha():
+                raise ValueError(f"'{code}' is not a 3-letter currency code like INR")
+            if rate <= 0:
+                raise ValueError(f"rate for {code} must be above 0")
+        return v
+
+    def to_usd(self, amount: float, code: str) -> float | None:
+        code = (code or "USD").upper()
+        if code == "USD":
+            return amount
+        rate = self.rates_to_usd.get(code)
+        return amount * rate if rate else None
+
+
 class Policy(Strict):
     company_name: str = Field(min_length=2)
     description: str = ""
@@ -138,6 +161,7 @@ class Policy(Strict):
     working_hours: WorkingHours
     meeting: Meeting
     conversation: ConversationRules = ConversationRules()
+    currency: Currency = Currency()
 
     @model_validator(mode="after")
     def _cross_refs(self) -> "Policy":

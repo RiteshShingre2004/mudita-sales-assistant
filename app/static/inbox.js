@@ -34,9 +34,10 @@ const FIELD_LABEL = {
   service: "Service", budget_usd: "Budget", start_within_months: "Start",
   role: "Role", company: "Company", intent: "Intent",
 };
-const STATUS_ORDER = [["", "All"], ["needs_info", "Needs info"], ["qualified", "Qualified"], ["not_qualified", "Not qualified"], ["paused", "Human in control"]];
+const STATUS_ORDER = [["", "All"], ["attention", "Needs you"], ["needs_info", "Needs info"], ["qualified", "Qualified"], ["not_qualified", "Not qualified"], ["paused", "Human in control"]];
 
-function displayValue(key, v) {
+function displayValue(key, v, fields = {}) {
+  if (key === "budget_usd" && fields.budget_original) return `$${Number(v).toLocaleString("en-US")} (from ${fields.budget_original})`;
   if (key === "service") return POLICY?.services.find((s) => s.id === v)?.name || `${v} (not a listed service)`;
   if (key === "budget_usd") return `$${Number(v).toLocaleString("en-US")}`;
   if (key === "start_within_months") return Number(v) === 0 ? "Immediately" : `Within ${v} month${Number(v) === 1 ? "" : "s"}`;
@@ -51,7 +52,8 @@ const evidenceText = (e) => (e && typeof e === "object" ? e.quote : e) || "";
 function matches(c) {
   if (els.channel.value && c.channel !== els.channel.value) return false;
   if (statusFilter === "paused" && !c.automation_paused) return false;
-  if (statusFilter && statusFilter !== "paused" && c.lead_status !== statusFilter) return false;
+  if (statusFilter === "attention" && !c.attention) return false;
+  if (statusFilter && !["paused", "attention"].includes(statusFilter) && c.lead_status !== statusFilter) return false;
   const q = els.search.value.trim().toLowerCase();
   if (!q) return true;
   return [c.contact.name, c.contact.external_id, c.last_message?.body, c.assigned_rep].some((s) => (s || "").toLowerCase().includes(q));
@@ -61,7 +63,7 @@ const visible = () => conversations.filter(matches);
 function renderStatusFilters() {
   const count = (key) => conversations.filter((c) =>
     (!els.channel.value || c.channel === els.channel.value) &&
-    (key === "" || (key === "paused" ? c.automation_paused : c.lead_status === key))).length;
+    (key === "" || (key === "paused" ? c.automation_paused : key === "attention" ? Boolean(c.attention) : c.lead_status === key))).length;
   els.statusFilters.innerHTML = STATUS_ORDER.map(([key, label]) =>
     `<button type="button" data-filter="${key}" aria-pressed="${statusFilter === key}">${label} <span>${count(key)}</span></button>`).join("");
 }
@@ -88,6 +90,7 @@ function renderList(flashIds = new Set()) {
         <span class="status" data-st="${esc(c.lead_status)}">${esc(STATUS_LABEL[c.lead_status] || c.lead_status)}</span>
         ${c.assigned_rep ? `<span class="tag">${esc(c.assigned_rep)}</span>` : ""}
         ${c.automation_paused ? `<span class="tag paused">Human in control</span>` : ""}
+        ${c.attention ? `<span class="tag attention">Needs you</span>` : ""}
         ${c.contact.is_demo ? `<span class="tag demo">Sample data</span>` : ""}
       </span>
     </button></li>`).join("");
@@ -107,7 +110,7 @@ function renderThread(c) {
   }
   els.thread.innerHTML = c.messages.map((m) => `
     <li class="msg ${m.direction === "out" ? "out" : "in"} ${esc(m.author)}" id="m${m.id}">
-      <div class="msg-meta">${esc(AUTHOR_LABEL[m.author] || m.author)}, ${esc(fmtDateTime(m.at))}${m.send_status === "sending" ? ", sending" : ""}</div>
+      <div class="msg-meta">${esc(AUTHOR_LABEL[m.author] || m.author)}${m.reply_source === "template" ? " (safe template)" : ""}, ${esc(fmtDateTime(m.at))}${m.send_status === "sending" ? ", sending" : ""}</div>
       <div class="msg-body">${esc(m.body)}</div>
       ${m.send_status === "failed" ? `<div class="msg-error">Not delivered: ${esc(m.error || "unknown error")}</div>` : ""}
       ${m.send_status === "uncertain" ? `<div class="msg-error">Delivery unknown: ${esc(m.error)}</div>` : ""}
@@ -138,6 +141,25 @@ function highlightEvidence(field) {
 }
 
 // ---------- control + composer ----------
+
+function renderAttention(c) {
+  const box = document.getElementById("attention-banner");
+  box.hidden = !c.attention || c.automation_paused;
+  if (box.hidden) return;
+  box.innerHTML = `<p>${esc(c.attention)}</p><button type="button" id="retry-btn">Retry assistant</button>`;
+  document.getElementById("retry-btn").addEventListener("click", async (ev) => {
+    const btn = ev.currentTarget;
+    btn.disabled = true; btn.textContent = "Retrying…";
+    try {
+      const r = await api(`/api/conversations/${c.id}/retry`, { method: "POST" });
+      toast(r.attention ? `Still needs you: ${r.attention}` : "The assistant handled the message.", r.attention ? "warn" : "ok", 7000);
+    } catch (e) {
+      toast(e.message, "error");
+    } finally {
+      lastDetailJson = ""; refresh();
+    }
+  });
+}
 
 function renderControl(c) {
   els.banner.hidden = !c.automation_paused;
@@ -216,7 +238,9 @@ function renderLead(c) {
     const q = evidenceText(evidence[k]);
     const known = !(v === undefined || v === null || v === "");
     return `<tr><th scope="row">${FIELD_LABEL[k]}</th><td>${
-      known ? esc(displayValue(k, v)) : `<span class="unknown">Not stated</span>`
+      known ? esc(displayValue(k, v, fields)) : (k === "budget_usd" && fields.budget_original
+        ? `<span class="unknown">${esc(fields.budget_original)}, no conversion rate</span>`
+        : `<span class="unknown">Not stated</span>`)
     }${q ? `<button type="button" class="quote" data-field="${k}" title="Show this in the conversation">“${esc(q)}”</button>` : ""}</td></tr>`;
   }).join("");
 
@@ -274,6 +298,7 @@ function renderNothingSelected() {
   els.title.innerHTML = "";
   els.control.innerHTML = "";
   els.banner.hidden = true;
+  document.getElementById("attention-banner").hidden = true;
   els.composer.hidden = true;
   els.thread.innerHTML = `<li class="empty"><strong>Select an inquiry</strong>Its conversation, qualification and booking appear here.</li>`;
   els.lead.innerHTML = "";
@@ -311,6 +336,7 @@ async function refresh() {
     current = detail;
     renderThread(detail);
     renderControl(detail);
+    renderAttention(detail);
     renderLead(detail);
   } catch (e) {
     if (e.status === 404) { select(null); toast("That conversation no longer exists."); }

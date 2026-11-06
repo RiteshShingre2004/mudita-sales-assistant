@@ -154,6 +154,13 @@ select { background: var(--panel); border: 1px solid var(--line); border-radius:
 
 .rep-name { font-weight: 700; }
 
+.attention-banner {
+  display: flex; align-items: center; gap: 12px; justify-content: space-between;
+  padding: 8px 16px; background: var(--err-bg); color: var(--err-ink); font-size: 14px; border-bottom: 1px solid var(--line-soft);
+}
+.attention-banner p { margin: 0; }
+.attention-banner button { flex-shrink: 0; }
+.tag.attention { border-color: var(--err-ink); color: var(--err-ink); background: var(--err-bg); }
 .paused-banner { padding: 8px 16px; background: var(--warn-bg); color: var(--warn-ink); font-size: 14px; border-bottom: 1px solid var(--line-soft); }
 #control { margin-left: auto; }
 #control button { white-space: nowrap; }

@@ -68,6 +68,9 @@ class Conversation(Base):
     automation_paused: Mapped[bool] = mapped_column(Boolean, default=False)  # human takeover
     paused_by: Mapped[str] = mapped_column(String(100), default="")
     paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set when the assistant stops and a person should look (LLM failure, send failure,
+    # question limit reached). Cleared by an operator reply or a successful retry.
+    attention: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_message_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

@@ -65,4 +65,12 @@ meeting:
   slots_to_offer: 3
 
 conversation:
+  # After this many unanswered follow-up questions the assistant hands over to a person.
   max_follow_up_questions: 4
+
+currency:
+  # Fixed rates, used only to compare a budget stated in another currency with min_budget_usd.
+  rates_to_usd:
+    INR: 0.012
+    EUR: 1.08
+    GBP: 1.27
