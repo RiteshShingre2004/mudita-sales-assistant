@@ -51,6 +51,8 @@ class Settings:
     whatsapp_token: str = field(default_factory=lambda: _env("WHATSAPP_ACCESS_TOKEN"))
     whatsapp_phone_number_id: str = field(default_factory=lambda: _env("WHATSAPP_PHONE_NUMBER_ID"))
     instagram_token: str = field(default_factory=lambda: _env("INSTAGRAM_ACCESS_TOKEN"))
+    # Instagram API with Instagram Login has its own app secret (App Dashboard > Instagram > API setup).
+    instagram_app_secret: str = field(default_factory=lambda: _env("INSTAGRAM_APP_SECRET"))
 
     @property
     def is_production(self) -> bool:

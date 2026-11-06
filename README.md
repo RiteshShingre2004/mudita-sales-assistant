@@ -4,10 +4,10 @@ A prototype sales assistant for a fictional analytics consultancy, Lumen Analyti
 It turns inquiries from Instagram, WhatsApp and email into qualified, assigned leads
 and confirmed meetings, with a human able to take over at any point.
 
-> Status: **Step 4 of 8 built (WhatsApp).** Step 1: skeleton, data model, editable policy, inbox UI,
+> Status: **Step 5 of 8 built (Instagram).** Step 1: skeleton, data model, editable policy, inbox UI,
 > takeover guard. Step 2: Gmail inbox channel. Step 3: LLM extraction with verified evidence,
 > rule-based qualification, routing and grounded replies. Step 4: WhatsApp Cloud API.
-> Next: Instagram, then calendar booking. This README grows with each step.
+> Step 5: Instagram Direct. Next: calendar booking. This README grows with each step.
 
 ## Stack
 
@@ -62,6 +62,7 @@ presented as live channel integrations.
 | `app/meta.py` | Meta webhook signature check, Graph API calls, readable error codes, connection health. |
 | `app/webhooks.py` | Public webhook endpoints: verification handshake, signature check, store, then process in the background. |
 | `app/channels/whatsapp.py` | WhatsApp payload parsing, delivery receipts, sending. |
+| `app/channels/instagram.py` | Instagram DM parsing (echo filtering), username lookup, sending, account linking. |
 
 ### How a message becomes a decision (Step 3)
 
@@ -158,6 +159,23 @@ number's allowed list (the brief's "authorised test senders").
 message. The assistant always answers inside that window. An operator reply after 24 hours
 fails with a clear explanation; sending approved templates is out of scope for this prototype.
 
+### Instagram channel (Step 5)
+
+Instagram API with Instagram Login, for an Instagram **professional** account, with a
+second account added as an **Instagram tester** on the Meta app.
+
+- **Webhook** `GET/POST /webhooks/instagram`, same handshake and signature check as WhatsApp.
+  Meta's documentation is ambiguous about which secret signs Instagram Login webhooks, so the
+  signature is accepted if it matches either `INSTAGRAM_APP_SECRET` or `META_APP_SECRET`.
+- **Account linking is automatic.** On start-up (and from Connections > Link Instagram account)
+  the app reads which professional account the token belongs to and calls
+  `me/subscribed_apps?subscribed_fields=messages`, so no manual Graph API call is needed.
+- **Echoes are skipped.** Instagram sends our own replies back as `is_echo` messages; they are
+  ignored, as are deletions, reactions and read receipts. DMs are deduped by `mid`.
+- The sender's `@username` is looked up for display; if that fails the IGSID is shown.
+- Replies are trimmed to Instagram's 1,000-byte limit. A reply outside the 24-hour window
+  (error subcode 2018278) is explained in plain words and the conversation is flagged.
+
 ### Integrity rules enforced by the database
 
 - **No cross-channel merging.** Contacts are unique per `(channel, external_id)`.
@@ -173,7 +191,7 @@ fails with a clear explanation; sending approved templates is out of scope for t
 `APP_ENV`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD`,
 `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REPLY_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
 `META_APP_SECRET`, `META_VERIFY_TOKEN`, `META_GRAPH_VERSION` (default `v23.0`),
-`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`.
+`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_SECRET`.
 
 ## Known limitations (so far)
 
@@ -185,7 +203,7 @@ fails with a clear explanation; sending approved templates is out of scope for t
 - Google refresh tokens for apps in **Testing** mode expire after 7 days. Reconnect Google
   from the Connections menu if the demo runs longer.
 - Tests use in-memory fakes of Google's and Groq's endpoints (`tests/fake_google.py`,
-  `tests/fake_groq.py`, and a fake Graph API in `tests/test_whatsapp.py`). That is test scaffolding only; the running app always talks to the
+  `tests/fake_groq.py`, and fake Graph APIs in `tests/test_whatsapp.py` and `tests/test_instagram.py`). That is test scaffolding only; the running app always talks to the
   real APIs.
 - Render's free web service sleeps after ~15 minutes idle. The first webhook after
   sleep is slow; Meta retries undelivered webhooks, and duplicates are dropped by the

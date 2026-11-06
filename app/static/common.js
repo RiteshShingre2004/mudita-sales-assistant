@@ -66,6 +66,9 @@ const connEls = {
 };
 
 function connActions(c) {
+  if (c.provider === "instagram" && c.status !== "not_configured") {
+    return `<div class="conn-actions"><button type="button" data-act="ig-link">${c.account ? "Re-link Instagram" : "Link Instagram account"}</button></div>`;
+  }
   if (c.connect !== "oauth" || c.status === "not_configured") return "";
   const acts = [];
   if (c.status === "ok") {
@@ -131,6 +134,9 @@ if (connEls.toggle) {
         else if (r.busy) toast("An inbox check is already running.");
         else toast(r.new ? `${r.new} new email${r.new > 1 ? "s" : ""} received.` : "No new emails.", "ok");
         document.dispatchEvent(new CustomEvent("data-changed"));
+      } else if (btn.dataset.act === "ig-link") {
+        const r = await api("/api/connections/instagram/link", { method: "POST" });
+        toast(`Instagram ${r.account} linked. New DMs to it now reach the inbox.`, "ok", 7000);
       } else if (btn.dataset.act === "disconnect") {
         if (!confirm("Disconnect Google? The inbox and calendar stop working until you connect again.")) return;
         await api("/api/connections/google/disconnect", { method: "POST" });

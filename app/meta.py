@@ -29,11 +29,14 @@ class MetaAPIError(Exception):
         self.reason, self.code, self.status = reason, code, status
 
 
-def signature_ok(raw_body: bytes, header: str | None) -> bool:
-    if not settings.meta_app_secret or not header or not header.startswith("sha256="):
+def signature_ok(raw_body: bytes, header: str | None, secrets: list[str] | None = None) -> bool:
+    """True if the header is a valid HMAC-SHA256 of the body with any of the given secrets."""
+    secrets = [s for s in (secrets if secrets is not None else [settings.meta_app_secret]) if s]
+    if not secrets or not header or not header.startswith("sha256="):
         return False
-    expected = hmac.new(settings.meta_app_secret.encode(), raw_body, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected, header.removeprefix("sha256="))
+    given = header.removeprefix("sha256=")
+    return any(hmac.compare_digest(hmac.new(sec.encode(), raw_body, hashlib.sha256).hexdigest(), given)
+               for sec in secrets)
 
 
 def set_health(session: Session, provider: str, status: str, error: str = "", account: str | None = None) -> None:
@@ -69,15 +72,23 @@ _EXPLAIN = {
 }
 
 
-def explain(code: int | None, fallback: str) -> str:
-    return _EXPLAIN.get(code or -1, fallback)
+_EXPLAIN_SUBCODE = {
+    2018278: "More than 24 hours have passed since the lead's last message, so Instagram does not allow a reply now.",
+    2534022: "More than 24 hours have passed since the lead's last message, so Instagram does not allow a reply now.",
+}
 
 
-def graph_post(session: Session, provider: str, path: str, token: str, payload: dict) -> dict:
-    url = f"https://graph.facebook.com/{GRAPH_VERSION}/{path.lstrip('/')}"
+def explain(code: int | None, fallback: str, subcode: int | None = None) -> str:
+    return _EXPLAIN_SUBCODE.get(subcode or -1) or _EXPLAIN.get(code or -1, fallback)
+
+
+def graph_post(session: Session, provider: str, path: str, token: str, payload: dict | None = None, *,
+               base: str = "https://graph.facebook.com", method: str = "POST", params: dict | None = None) -> dict:
+    url = f"{base}/{GRAPH_VERSION}/{path.lstrip('/')}"
     try:
         with httpx.Client(timeout=httpx.Timeout(20.0, connect=10.0), transport=HTTP_TRANSPORT) as http:
-            resp = http.post(url, json=payload, headers={"Authorization": f"Bearer {token}"})
+            resp = http.request(method, url, json=payload, params=params,
+                                headers={"Authorization": f"Bearer {token}"})
     except httpx.TimeoutException:
         raise  # caller records "uncertain": the message may have gone out
     except httpx.HTTPError as exc:
@@ -95,7 +106,7 @@ def graph_post(session: Session, provider: str, path: str, token: str, payload: 
     err = data.get("error", {}) if isinstance(data, dict) else {}
     code = err.get("code")
     detail = (err.get("error_data") or {}).get("details") or err.get("message") or f"HTTP {resp.status_code}"
-    reason = explain(code, detail)
+    reason = explain(code, detail, err.get("error_subcode"))
     if code == 190 or resp.status_code == 401:
         set_health(session, provider, "expired", reason)
     elif code in (10, 200):

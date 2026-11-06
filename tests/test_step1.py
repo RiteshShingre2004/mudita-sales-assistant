@@ -117,7 +117,7 @@ def test_dashboard_pages_render(client):
     assert client.get("/policy").status_code == 200
     assert client.get("/healthz").json() == {"ok": True, "database": "ready"}
     conns = {c["provider"]: c["status"] for c in client.get("/api/connections").json()}
-    assert conns["instagram"] == "not_configured"
+    assert set(conns) == {"email", "calendar", "whatsapp", "instagram", "llm"}
 
 
 def test_public_privacy_pages_need_no_login(client):

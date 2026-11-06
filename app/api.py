@@ -204,6 +204,18 @@ def poll_email_now(operator: str = Depends(require_operator)):
     return poll_gmail_now(actor=f"human:{operator}")
 
 
+@router.post("/connections/instagram/link")
+def instagram_link(session: Session = Depends(get_session), operator: str = Depends(require_operator)):
+    from app.channels.instagram import link_account
+    from app.meta import MetaAPIError
+
+    try:
+        account = link_account(session, actor=f"human:{operator}")
+    except MetaAPIError as exc:
+        raise HTTPException(502, f"Instagram did not accept the link: {exc.reason}")
+    return {"account": account}
+
+
 @router.post("/connections/google/disconnect")
 def google_disconnect(session: Session = Depends(get_session), operator: str = Depends(require_operator)):
     from app.google_oauth import disconnect
@@ -262,14 +274,16 @@ _PROVIDERS = {
     "calendar": ("Google Calendar", lambda: bool(settings.google_client_id and settings.google_client_secret), "google", "oauth"),
     "whatsapp": ("WhatsApp", lambda: bool(settings.whatsapp_token and settings.whatsapp_phone_number_id
                                           and settings.meta_app_secret and settings.meta_verify_token), "whatsapp", "env"),
-    "instagram": ("Instagram", lambda: bool(settings.instagram_token), "instagram", "env"),
+    "instagram": ("Instagram", lambda: bool(settings.instagram_token and settings.meta_verify_token
+                                           and (settings.instagram_app_secret or settings.meta_app_secret)),
+                  "instagram", "env"),
     "llm": ("Groq LLM", lambda: bool(settings.groq_api_key), "llm", "env"),
 }
 _ENV_NAMES = {
     "email": "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET",
     "calendar": "GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET",
     "whatsapp": "WHATSAPP_ACCESS_TOKEN, WHATSAPP_PHONE_NUMBER_ID, META_APP_SECRET, META_VERIFY_TOKEN",
-    "instagram": "INSTAGRAM_ACCESS_TOKEN",
+    "instagram": "INSTAGRAM_ACCESS_TOKEN, INSTAGRAM_APP_SECRET, META_VERIFY_TOKEN",
     "llm": "GROQ_API_KEY",
 }
 

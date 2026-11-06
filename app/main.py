@@ -46,6 +46,17 @@ async def _connect_database(attempts: int) -> bool:
     return False
 
 
+def _link_instagram() -> None:
+    from app.channels.instagram import link_account
+    from app.meta import MetaAPIError
+
+    with SessionLocal() as s:
+        try:
+            log.info("Instagram linked: %s", link_account(s))
+        except MetaAPIError as exc:
+            log.error("Instagram link failed: %s", exc.reason)
+
+
 async def _keep_trying_then_start(start_background) -> None:
     while not await _connect_database(attempts=1):
         await asyncio.sleep(15)
@@ -63,6 +74,8 @@ async def lifespan(_: FastAPI):
 
             tasks.append(asyncio.create_task(run_forever()))
             log.info("Inbox poller started")
+            if settings.instagram_token:
+                tasks.append(asyncio.create_task(asyncio.to_thread(_link_instagram)))
 
     # Bounded wait so the port always opens: a slow or missing database shows up
     # in the logs and on /healthz instead of as a silent deploy time-out.

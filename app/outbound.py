@@ -31,6 +31,10 @@ def _send_on_channel(session: Session, conv: Conversation, text: str) -> str:
         from app.channels.whatsapp import send_whatsapp
 
         return send_whatsapp(session, conv, text)
+    if conv.channel == "instagram":
+        from app.channels.instagram import send_instagram
+
+        return send_instagram(session, conv, text)
     raise ChannelNotAvailable(f"Sending on {conv.channel} is not connected yet")
 
 

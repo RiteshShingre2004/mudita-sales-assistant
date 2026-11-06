@@ -16,7 +16,9 @@ os.environ["META_APP_SECRET"] = "test-app-secret"          # fake Meta app; Grap
 os.environ["META_VERIFY_TOKEN"] = "test-verify-token"
 os.environ["WHATSAPP_ACCESS_TOKEN"] = "test-wa-token"
 os.environ["WHATSAPP_PHONE_NUMBER_ID"] = "1379451971922417"
-for _k in ("INSTAGRAM_ACCESS_TOKEN", "EMAIL_INBOX_ADDRESS"):
+os.environ["INSTAGRAM_ACCESS_TOKEN"] = "test-ig-token"
+os.environ["INSTAGRAM_APP_SECRET"] = "test-ig-secret"
+for _k in ("EMAIL_INBOX_ADDRESS",):
     os.environ.pop(_k, None)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

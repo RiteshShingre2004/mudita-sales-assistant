@@ -56,20 +56,29 @@ def _mark_webhook_seen(session, provider: str) -> None:
     session.commit()
 
 
+def _secrets_for(provider: str) -> list[str]:
+    # Instagram Login apps may sign with the Instagram app secret; accept either.
+    if provider == "instagram":
+        return [settings.instagram_app_secret, settings.meta_app_secret]
+    return [settings.meta_app_secret]
+
+
 async def _receive(request: Request, background: BackgroundTasks, provider: str, store) -> Response:
     raw = await request.body()
-    if not settings.meta_app_secret:
+    secrets = [x for x in _secrets_for(provider) if x]
+    if not secrets:
         with SessionLocal() as s:
-            set_health(s, provider, "error", "META_APP_SECRET is not set, so incoming messages can't be verified")
+            set_health(s, provider, "error", "No app secret is set, so incoming messages can't be verified")
         return PlainTextResponse("not configured", status_code=503)
-    if not signature_ok(raw, request.headers.get("x-hub-signature-256")):
+    if not signature_ok(raw, request.headers.get("x-hub-signature-256"), secrets):
         with SessionLocal() as s:
             log_action(s, actor="webhook", action="webhook_rejected", level="warn",
                        summary=f"Rejected a {provider} webhook call with a missing or wrong signature")
             s.commit()
             # Show it in the Connections menu: a wrong META_APP_SECRET otherwise looks like silence.
-            set_health(s, provider, "error", "A message arrived but its signature did not match. "
-                                             "Check that META_APP_SECRET is this app's App secret.")
+            set_health(s, provider, "error", "A message arrived but its signature did not match. Check that "
+                                             + ("INSTAGRAM_APP_SECRET" if provider == "instagram" else "META_APP_SECRET")
+                                             + " is this app's secret.")
         return PlainTextResponse("bad signature", status_code=401)
     try:
         payload = json.loads(raw)
@@ -94,3 +103,15 @@ async def whatsapp_receive(request: Request, background: BackgroundTasks):
     from app.channels.whatsapp import store_webhook
 
     return await _receive(request, background, "whatsapp", store_webhook)
+
+
+@router.get("/instagram")
+def instagram_verify(request: Request):
+    return _verify(request, "instagram")
+
+
+@router.post("/instagram")
+async def instagram_receive(request: Request, background: BackgroundTasks):
+    from app.channels.instagram import store_webhook
+
+    return await _receive(request, background, "instagram", store_webhook)
