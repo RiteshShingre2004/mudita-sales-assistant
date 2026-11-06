@@ -98,7 +98,7 @@ app.include_router(oauth_router)
 app.include_router(webhook_router)
 
 
-@app.get("/healthz")
+@app.api_route("/healthz", methods=["GET", "HEAD"])  # uptime monitors often use HEAD
 def healthz():
     # 200 while the process is up, so Render can finish the deploy; the body says whether
     # the database is reachable.
