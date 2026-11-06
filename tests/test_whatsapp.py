@@ -160,3 +160,25 @@ def test_operator_reply_goes_out_on_whatsapp(client, session, graph, groq):
     r = client.post(f"/api/conversations/{conv.id}/reply", json={"text": "Hi Rohit, Priya here."})
     assert r.json()["send_status"] == "sent"
     assert graph.sent[-1]["text"]["body"] == "Hi Rohit, Priya here."
+
+
+# ---------- making silent failures visible ----------
+
+def test_wrong_app_secret_turns_whatsapp_red(client, session, graph):
+    post(client, wa_payload(), secret=b"not-the-app-secret")
+    status = {c["provider"]: c for c in client.get("/api/connections").json()}["whatsapp"]
+    assert status["status"] == "error" and "META_APP_SECRET" in status["error"]
+
+
+def test_wrong_phone_number_id_is_explained(client, session, graph):
+    post(client, wa_payload(phone_id="555000111"))
+    status = {c["provider"]: c for c in client.get("/api/connections").json()}["whatsapp"]
+    assert status["status"] == "error" and "555000111" in status["error"]
+
+
+def test_last_webhook_time_is_shown(client, session, graph):
+    before = {c["provider"]: c for c in client.get("/api/connections").json()}["whatsapp"]
+    assert before["last_webhook_at"] is None
+    post(client, wa_payload())
+    after = {c["provider"]: c for c in client.get("/api/connections").json()}["whatsapp"]
+    assert after["last_webhook_at"] and after["status"] == "ok"

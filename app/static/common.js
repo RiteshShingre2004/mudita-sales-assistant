@@ -95,6 +95,9 @@ async function loadConnections() {
         ${c.account ? `<div class="conn-sub">${esc(c.account)}</div>` : ""}
         ${c.error && c.status !== "ok" ? `<div class="conn-sub conn-err">${esc(c.error)}</div>` : ""}
         ${c.last_checked_at && c.status === "ok" && c.provider === "email" ? `<div class="conn-sub">Inbox checked ${esc(fmtRelative(c.last_checked_at))}</div>` : ""}
+        ${c.webhook && c.status !== "not_configured" ? `<div class="conn-sub">${c.last_webhook_at
+          ? `Last message from Meta ${esc(fmtRelative(c.last_webhook_at))}`
+          : "No messages received from Meta yet. Check the webhook is verified and subscribed to messages."}</div>` : ""}
         ${connActions(c)}
       </li>`).join("");
     const problem = broken.map((b) => b.label + b.status).join();

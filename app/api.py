@@ -286,7 +286,9 @@ def connections(session: Session = Depends(get_session)):
             status, err = ("ok" if connect == "env" else "not_connected"), ""
         else:
             status, err = row.status, row.last_error
+        last_webhook = ((row.state or {}).get("last_webhook_at") if row else None)
         out.append({"provider": key, "label": label, "status": status, "error": err, "connect": connect,
+                    "webhook": key in ("whatsapp", "instagram"), "last_webhook_at": last_webhook,
                     "account": row.account if row else "",
                     "last_checked_at": _iso(row.last_checked_at) if row else None})
     return out

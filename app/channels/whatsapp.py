@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.actions import log_action
 from app.config import settings
 from app.inbound import InboundMessage, record_inbound
-from app.meta import MetaAPIError, explain, graph_post
+from app.meta import MetaAPIError, explain, graph_post, set_health
 from app.models import Contact, Conversation, Message
 
 PROVIDER = "whatsapp"
@@ -42,8 +42,9 @@ def _body_of(msg: dict) -> str:
     return f"{note}\n{caption}".strip()
 
 
-def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
-    """Return (new messages, delivery statuses) addressed to our phone number."""
+def parse_webhook(payload: dict, other_numbers: list[str] | None = None) -> tuple[list[InboundMessage], list[dict]]:
+    """Return (new messages, delivery statuses) addressed to our phone number.
+    Phone number ids that are not ours are appended to `other_numbers`."""
     messages: list[InboundMessage] = []
     statuses: list[dict] = []
     if payload.get("object") != "whatsapp_business_account":
@@ -53,7 +54,10 @@ def parse_webhook(payload: dict) -> tuple[list[InboundMessage], list[dict]]:
             if change.get("field") != "messages":
                 continue
             value = change.get("value", {})
-            if value.get("metadata", {}).get("phone_number_id") != settings.whatsapp_phone_number_id:
+            pid = value.get("metadata", {}).get("phone_number_id")
+            if pid != settings.whatsapp_phone_number_id:
+                if other_numbers is not None and pid:
+                    other_numbers.append(pid)
                 continue  # some other number on the same app
             names = {c.get("wa_id"): c.get("profile", {}).get("name", "") for c in value.get("contacts", [])}
             for m in value.get("messages", []):
@@ -92,7 +96,15 @@ def apply_status(session: Session, status: dict) -> None:
 
 def store_webhook(session: Session, payload: dict) -> list[int]:
     """Store new messages and apply statuses. Returns conversation ids to process."""
-    messages, statuses = parse_webhook(payload)
+    others: list[str] = []
+    messages, statuses = parse_webhook(payload, others)
+    if others and not messages and not statuses:
+        set_health(session, PROVIDER, "error",
+                   f"A message arrived for phone number ID {others[0]}, but WHATSAPP_PHONE_NUMBER_ID is "
+                   f"{settings.whatsapp_phone_number_id or 'not set'}. Set it to the test number's Phone number ID.")
+        return []
+    if messages:
+        set_health(session, PROVIDER, "ok")
     to_process: list[int] = []
     for inbound in messages:
         stored = record_inbound(session, inbound, actor="webhook")

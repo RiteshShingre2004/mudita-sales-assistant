@@ -43,6 +43,19 @@ def run_pipeline(conversation_ids: list[int]) -> None:
                      level="error")
 
 
+def _mark_webhook_seen(session, provider: str) -> None:
+    from datetime import datetime, timezone
+
+    from app.models import Connection
+
+    row = session.get(Connection, provider)
+    if row is None:
+        row = Connection(provider=provider, status="ok", credentials={}, state={})
+        session.add(row)
+    row.state = {**(row.state or {}), "last_webhook_at": datetime.now(timezone.utc).isoformat()}
+    session.commit()
+
+
 async def _receive(request: Request, background: BackgroundTasks, provider: str, store) -> Response:
     raw = await request.body()
     if not settings.meta_app_secret:
@@ -54,6 +67,9 @@ async def _receive(request: Request, background: BackgroundTasks, provider: str,
             log_action(s, actor="webhook", action="webhook_rejected", level="warn",
                        summary=f"Rejected a {provider} webhook call with a missing or wrong signature")
             s.commit()
+            # Show it in the Connections menu: a wrong META_APP_SECRET otherwise looks like silence.
+            set_health(s, provider, "error", "A message arrived but its signature did not match. "
+                                             "Check that META_APP_SECRET is this app's App secret.")
         return PlainTextResponse("bad signature", status_code=401)
     try:
         payload = json.loads(raw)
@@ -61,6 +77,7 @@ async def _receive(request: Request, background: BackgroundTasks, provider: str,
         return PlainTextResponse("bad json", status_code=400)
 
     with SessionLocal() as s:
+        _mark_webhook_seen(s, provider)
         to_process = store(s, payload)
     if to_process:
         background.add_task(run_pipeline, to_process)
