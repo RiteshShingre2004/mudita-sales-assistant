@@ -63,7 +63,8 @@ def _find_page(session: Session, token: str) -> dict:
                         params={"fields": f"id,name,{ig_field}"}, record_health=False)
     except MetaAPIError as exc:
         if "nonexisting field" not in exc.reason:
-            raise
+            raise MetaAPIError(f"Reading the token's account failed: {exc.reason} "
+                               "(needs pages_show_list and instagram_basic).")
         me = None  # a user token: users have no such field
     if me is not None:
         if not me.get("instagram_business_account"):
@@ -88,9 +89,14 @@ def _find_page(session: Session, token: str) -> dict:
 
 def _link_facebook_login(session: Session) -> dict:
     page = _find_page(session, settings.instagram_token)
-    graph_post(session, PROVIDER, f"{page['id']}/subscribed_apps", page["access_token"], None, base=FB_BASE,
-               params={"subscribed_fields": "messages"}, record_health=False)
     ig = page["instagram_business_account"]
+    try:
+        graph_post(session, PROVIDER, f"{page['id']}/subscribed_apps", page["access_token"], None, base=FB_BASE,
+                   params={"subscribed_fields": "messages"}, record_health=False)
+    except MetaAPIError as exc:
+        raise MetaAPIError(f"Found the Page '{page.get('name', page['id'])}' with Instagram @{ig.get('username', '?')}, "
+                           f"but subscribing it to messages failed: {exc.reason} This step needs "
+                           "pages_manage_metadata (and instagram_manage_messages), and you must be an admin of the Page.")
     return {"mode": "facebook_login", "username": ig.get("username", ""), "ig_user_id": str(ig["id"]),
             "page_id": str(page["id"]), "page_token": page["access_token"]}
 
@@ -105,7 +111,8 @@ def link_account(session: Session, actor: str = "system") -> str:
         try:
             found = _link_facebook_login(session)
         except MetaAPIError as second:
-            reason = second.reason if any(k in second.reason for k in ("Page token", "user) token", "Facebook Page")) \
+            reason = second.reason if any(k in second.reason for k in ("Page token", "user) token", "Facebook Page",
+                                                                         "Found the Page", "Reading the token")) \
                 else (f"Instagram rejected the token ({first.reason}) and so did Facebook ({second.reason}).")
             set_health(session, PROVIDER, "error", reason)
             raise MetaAPIError(reason)
