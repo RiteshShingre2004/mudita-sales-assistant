@@ -59,6 +59,8 @@ _EXPLAIN = {
             "approved template messages now.",
     131030: "This phone number is not on the test number's allowed recipient list "
             "(WhatsApp > API Setup > To > Manage phone number list).",
+    131031: "Meta has locked or restricted this WhatsApp Business Account. Check WhatsApp Manager "
+            "(business.facebook.com/wa/manage) and Business Support Home for the reason.",
     131026: "WhatsApp could not deliver to this number (not on WhatsApp, or an old app version).",
     131056: "Too many messages to this number in a short time. Try again shortly.",
     130429: "WhatsApp rate limit reached. Try again shortly.",
