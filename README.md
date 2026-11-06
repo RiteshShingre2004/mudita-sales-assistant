@@ -68,6 +68,9 @@ Intake ──facts v1──► Planning ──plan r1──► Review ──corr
   days, deadline window and order, security review before customer data, PM sign-off for
   client-facing work, capacity, grounding of "stated" claims, dependency structure) runs on every
   draft. A plan is approved only when the checker finds nothing **and** the Review Agent approves.
+  The checker also works the other way round. If the Review Agent claims a working-day, workload or
+  date-order rule (R2/R5/R6) is broken and the checker shows it is not, the claim is overruled.
+  It stays visible, struck through, with the reason. Judgement calls are never overruled.
 - **Bounded:** at most `max_review_rounds` (3) Planning/Review rounds; anything still wrong is
   surfaced as unresolved issues.
 
@@ -90,14 +93,28 @@ Intake ──facts v1──► Planning ──plan r1──► Review ──corr
 | Case | How to show it | Automated test |
 |---|---|---|
 | A complete three-agent run | Start a run with the sample | `test_REQUIRED_complete_run_with_a_rule_violation_sent_back` |
-| A rule violation sent back for correction | The sample's weekend migration is usually caught naturally; the labelled demo toggle **Inject a rule violation into the first plan draft** guarantees one | same test, and `test_seeded_violation_demo_is_labelled_and_corrected` |
-| A changed source fact propagating | Source facts > F1 > **Correct** > date 2026-11-20: the sign-off and dependent deadlines move | `test_REQUIRED_changed_fact_propagates_without_stale_context` |
-| Recovery after a simulated model failure | **Simulate a failure (demo)** (or the option in the New run form) > the run stops, clearly labelled SIMULATED > **Resume** | `test_REQUIRED_recovery_after_simulated_failure_without_duplicating_work` |
-| Two sessions don't share private context | Session A: private note + run; **New** session B: run; B's Planning input shows no notes, and A's run isn't reachable from B | `test_REQUIRED_two_sessions_do_not_share_private_context` |
+| A rule violation sent back for correction | The sample's weekend migration is usually caught naturally; the labelled option **Demo faults > Put a weekend deadline into the first draft** guarantees one | same test, and `test_seeded_violation_demo_is_labelled_and_corrected` |
+| A changed source fact propagating | **Source facts** tab > F1 > **Correct** > date 2026-11-20 > **Save as v2 and rerun**: the sign-off and dependent deadlines move (see the **Schedule** view) | `test_REQUIRED_changed_fact_propagates_without_stale_context` |
+| Recovery after a simulated model failure | **Demo** menu > **Fail Planning's next call**, then correct a fact (or use **Demo faults** in the New run form) > the run stops, clearly labelled SIMULATED > **Resume** | `test_REQUIRED_recovery_after_simulated_failure_without_duplicating_work` |
+| Two sessions don't share private context | Session A: **Session settings** > private note, then a run; **+** for session B, then a run; B's Planning input shows no notes, and A's run isn't reachable from B | `test_REQUIRED_two_sessions_do_not_share_private_context` |
 
 Also covered: the Review Agent can't approve a violating plan, invalid handoffs get one repair
 attempt, a real model outage followed by resume, bad rules rejected before any model call, and
-reset clearing only one session. **Reset this session** and **Load sample meeting** are in the UI.
+reset clearing only one session. **Session settings > Reset this session** and **Reload sample** are in the UI.
+
+### What the page shows
+
+A strip of the three agents at the top shows live states and what passed between them (for
+example "10 facts →", "← 2 fixes back"). Below it, an outcome card says Approved or Needs a
+person, with totals. The tabs are:
+
+- **Plan:** a list, or a **Schedule** of deadlines against the calendar with weekends shaded. Click a
+  task to highlight what it depends on.
+- **How they got there:** the round-by-round handoffs, fixes and overrides.
+- **Source facts:** versioned, and correctable.
+- **Transcript** and **Log**.
+
+**Details** on any step opens a drawer with exactly what that agent received and returned.
 
 ### Cost per run (Assignment 02)
 
