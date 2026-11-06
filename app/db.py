@@ -33,6 +33,7 @@ def get_session() -> Iterator[Session]:
 
 def init_db() -> None:
     from app import models  # noqa: F401  (registers tables)
+    from app.agents import models as agent_models  # noqa: F401
     from app.migrate import add_missing_columns
 
     Base.metadata.create_all(engine)

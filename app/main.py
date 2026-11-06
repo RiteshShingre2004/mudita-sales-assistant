@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.agents.api import router as agents_router
 from app.api import router as api_router
 from app.auth import require_operator
 from app.config import settings
@@ -25,9 +26,12 @@ DB_STATE = {"ready": False, "error": ""}
 
 
 def _prepare_database() -> None:
+    from app.agents.orchestrator import mark_interrupted_runs
+
     init_db()
     with SessionLocal() as s:
         get_active_policy_row(s)  # seeds policy v1 + reps on first boot
+    mark_interrupted_runs()
 
 
 async def _connect_database(attempts: int) -> bool:
@@ -96,6 +100,7 @@ app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
 app.include_router(api_router)
 app.include_router(oauth_router)
 app.include_router(webhook_router)
+app.include_router(agents_router)
 
 
 @app.api_route("/healthz", methods=["GET", "HEAD"])  # uptime monitors often use HEAD
@@ -108,6 +113,11 @@ def healthz():
 @app.get("/", response_class=HTMLResponse)
 def inbox(request: Request, _: str = Depends(require_operator)):
     return templates.TemplateResponse(request, "inbox.html", {"page": "inbox"})
+
+
+@app.get("/agents", response_class=HTMLResponse)
+def agents_page(request: Request, _: str = Depends(require_operator)):
+    return templates.TemplateResponse(request, "agents.html", {"page": "agents"})
 
 
 @app.get("/policy", response_class=HTMLResponse)
