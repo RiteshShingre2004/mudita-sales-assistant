@@ -1,254 +1,272 @@
-# Lumen sales assistant (Mudita assignment 01)
+# Mudita AI Generalist assignments
 
-A prototype sales assistant for a fictional analytics consultancy, Lumen Analytics Co.
-It turns inquiries from Instagram, WhatsApp and email into qualified, assigned leads
-and confirmed meetings, with a human able to take over at any point.
+**Assignment 01: Lumen sales assistant.** A working prototype for a fictional analytics
+consultancy, Lumen Analytics Co. It turns inquiries from Instagram, WhatsApp and email into
+qualified, assigned leads and confirmed calendar meetings, with a human able to take over at
+any point.
 
-> Status: **Step 6 of 8 built (calendar booking).** Step 1: skeleton, data model, editable policy, inbox UI,
-> takeover guard. Step 2: Gmail inbox channel. Step 3: LLM extraction with verified evidence,
-> rule-based qualification, routing and grounded replies. Step 4: WhatsApp Cloud API.
-> Step 5: Instagram Direct. Step 6: Google Calendar booking. Next: hardening and hand-in. This README grows with each step.
+**Assignment 02: three connected mini-agents.** Being built in the same application under its
+own route (`/agents`), as the brief allows. This README gains its section when it is done.
 
-## Stack
+---
 
-FastAPI (Python 3.12) · SQLAlchemy 2 · Postgres (SQLite locally) · Groq LLM ·
-vanilla JS dashboard · deployed on Render.
+## Live demo and access
+
+| | |
+|---|---|
+| Dashboard | https://lumen-sales-assistant.onrender.com |
+| Sign-in | user `admin`; the password is in the submission email (never in this repository) |
+| Public pages | [/about](https://lumen-sales-assistant.onrender.com/about), [/privacy](https://lumen-sales-assistant.onrender.com/privacy), [/terms](https://lumen-sales-assistant.onrender.com/terms), [/data-deletion](https://lumen-sales-assistant.onrender.com/data-deletion), [/healthz](https://lumen-sales-assistant.onrender.com/healthz) |
+| Try it yourself | email **riteshshingre+lumen@gmail.com** from any address and watch the inbox. Instagram and WhatsApp only answer authorised test accounts (see below). |
+
+The app is kept awake by an UptimeRobot check on `/healthz` every 5 minutes (Render's free plan
+otherwise sleeps after 15 minutes and would stop reading the inbox).
+
+## Assignment 01: what was shown working, live
+
+| Brief requirement | Result | Evidence |
+|---|---|---|
+| A real inquiry arrives from **email** | ✅ | Gmail thread, qualified, routed to Daniel Brooks |
+| A real inquiry arrives from **Instagram** | ✅ | DMs from a tester account, qualified, routed to Daniel Brooks |
+| A real inquiry arrives from **WhatsApp** | ✅ inbound / ❌ outbound | Messages arrive and are qualified (Priya Nair); Meta blocks replies; see [WhatsApp blocker](#whatsapp-blocker) |
+| Qualification, routing and a **confirmed calendar booking** | ✅ | Email and Instagram leads each booked a real Google Calendar event |
+| An incomplete inquiry gets a **useful follow-up** | ✅ | Asks for at most two missing facts; hands over to a person after 4 questions |
+| "Ignore your rules" **does not override policy** | ✅ | Live on WhatsApp: "budget unlimited" rejected (no amount in the quote), no rep, no booking, no CEO; plus an automated test with a fully compromised model answer |
+| **Repeated confirmation** creates no duplicate | ✅ | Email and Instagram leads each confirmed twice: one event each, the second reply says "You're all set" |
+| **Newly occupied slot** creates no conflict | ✅ (automated test) | Slot taken between offer and confirmation → "just taken" + fresh times, no event |
+
+### WhatsApp blocker
+
+**Incomplete: outbound WhatsApp replies are blocked by Meta. Inbound works end to end.**
+
+- **Working:** WhatsApp Cloud API webhook (signature-checked), messages from the authorised test
+  phone arrive, are qualified, routed and logged, and the reply is written.
+- **Blocked:** every send returns WhatsApp error **131031 "Business account has been locked"**.
+  Meta's own `health_status` for the WhatsApp Business Account (`GET /{waba-id}?fields=health_status`)
+  reports `can_send_message: BLOCKED` with:
+  - **141006**: "There is an error with the payment method. This will block business initiated
+    conversations."
+  - **141010**: "The Business has not passed business verification."
+  - (131000, an incomplete business profile, was also listed and was fixed.)
+- **Attempted:** completed the business profile (cleared 131000); published the Meta app (required
+  before Meta delivers any real webhooks); linked the WhatsApp account to the app
+  (`POST /{waba-id}/subscribed_apps`); tried to add a payment method, but the Meta-created test
+  WhatsApp account is not listed under the business portfolio, so there is nowhere to add one.
+  Business verification needs registered-company documents, which a fictional company cannot
+  honestly provide.
+- **In the product:** the dashboard shows each failed reply with Meta's reason and flags the
+  conversation **Needs you**, so the block is visible rather than silent.
+
+## Assignment 01: how it works
+
+### Stack
+
+FastAPI (Python 3.12) · SQLAlchemy 2 · Postgres (SQLite locally) · Groq (`openai/gpt-oss-120b`,
+`openai/gpt-oss-20b`) · vanilla JS dashboard · Render. No front-end build step.
+
+### How a message becomes a decision
+
+```
+inbound message ─► stored once (dedupe by provider id) ─► human in control? ─yes─► stay quiet (logged)
+        │no
+        ▼
+LLM: fill a form (service, budget, start, role, company, intent, slot choice) + an exact quote for each
+        ▼
+code: is every quote really in the lead's messages? are values on the policy's lists?
+      (anything failing is dropped and logged as "evidence rejected"; verified facts carry over)
+        ▼
+code: policy rules ─► qualified / needs info / not qualified, with a reason per rule
+        ▼
+code: routing rules ─► rep (qualified only)
+        ▼
+code: next move ─ ask for ≤2 missing facts · decline once · hand to a person · offer 3 real slots · book
+        ▼
+LLM: word the reply from an allowed-facts list ─► code checks the draft ─► unsafe? use the template
+        ▼
+takeover guard again ─► send on the same channel ─► failure? flag "Needs you" with the reason
+```
+
+**The LLM has no authority.** It never sets a status, never picks a rep, never decides to book
+and never writes meeting times. Its only outputs are a form of quoted facts and the wording of a
+reply. Prompt injection is therefore contained by design, not by prompt wording: the automated
+injection test feeds a fully compromised model answer (invented quotes, a fake
+`"status": "qualified"` key, a reply claiming a booking with "our CEO") and checks that the lead
+stays "needs info", no rep is assigned and the safe template is sent.
+
+**Grounding.** Every fact in the lead panel shows the lead's own words; select the quote to see it
+highlighted in the message. Reply drafts are rejected if they claim a booking, name another rep,
+mention a title such as CEO, state an amount not in the policy, or contain links, emails or phone
+numbers.
+
+**Editable business policy.** `/policy` edits a YAML policy (services, qualifying criteria, two
+reps, routing rules, timezone, working hours, meeting rules, currency rates). Every save is
+validated (unknown keys, unknown reps or services, bad timezones are rejected), versioned, and used
+by the next decision; each decision records the policy version it used.
+
+**Human control.** Each conversation shows status, evidence, assigned rep, meeting and an action
+log. **Take over** stops all automatic replies, slot offers and bookings; the check runs right
+before each action, so work already in progress stops too. Operators can reply from the dashboard,
+retry after a failure, and delete a conversation and its data.
+
+### Integration research and choices
+
+| Need | Chosen | Why | Alternatives considered |
+|---|---|---|---|
+| Email | Gmail API, polling the history cursor every 20 s | Exact and simple; push (Pub/Sub) still needs `history.list` and adds a topic and subscription | Gmail push; IMAP (no thread ids, app passwords) |
+| WhatsApp | WhatsApp Cloud API, Meta test number | Official, free test number, allowed-recipient list matches "authorised test recipients" | Twilio (sandbox is a simulator-like shared number) |
+| Instagram | Instagram messaging through the Facebook Page linked to the professional account (Facebook Login token) | Meta's "Unified login" issues Facebook-style tokens; the code detects the token type and uses the Page route; Instagram Login tokens also work | Instagram Login only (rejected the token type Meta issued) |
+| Calendar | Google Calendar API | We can set the **event id**, which makes booking idempotent at the provider; free/busy for availability | Calendly / Cal.com (no client-chosen ids; booking pages, not an API we fully control) |
+| LLM | Groq, gpt-oss-120b with strict JSON schema; gpt-oss-20b for wording | Strict schema output, low latency and cost | llama-3.3-70b (retired on Groq on 2026-08-16) |
+
+**Channel details:**
+- **Email:** only mail addressed to `EMAIL_INBOX_ADDRESS` (a `+lumen` alias), or in a thread
+  already handled, is read, so the rest of the mailbox is never downloaded or stored. Auto-replies,
+  lists, `no-reply@` and its own mail are ignored. Replies stay in the Gmail thread.
+- **WhatsApp:** signature-checked webhook, stored before acknowledging, processed in the
+  background, deduped by `wamid`; delivery receipts update each reply; Graph errors are explained
+  in plain words.
+- **Instagram:** the same webhook checks; echoes of our own messages are skipped; only usernames
+  in `INSTAGRAM_ALLOWED_SENDERS` are answered, so the friends of a personal account never get
+  automatic replies, and nothing from other senders is stored.
+
+### Calendar booking
+
+```
+qualified ─► free/busy ─► 3 free slots (working hours, ≥4 h notice, spread across days,
+             never a time on offer to someone else or already shown), listed by code
+lead replies ─► "2" / "option 2" / "the second one" (code)  or a quoted natural choice (LLM)
+             ─► vague ("yes", "1 or 2") → "which one?" · "none work" → different times
+chosen slot ─► already booked for this lead? → "you're all set" (no new event)
+            ─► re-check free/busy → taken since offered? → "just taken" + fresh times
+            ─► takeover guard ─► booking row (pending)
+            ─► create event with id = hash(conversation, slot)
+                 200 → confirmed · 409 → already exists → confirmed
+                 timeout → uncertain → GET that id: found → confirmed;
+                           verified absent → create again with the same id
+```
+
+- **No duplicates:** the booking key is unique in the database and is the Google event id, so
+  even two racing confirmations produce one event.
+- **No conflicts:** availability is re-checked immediately before creating.
+- **No blind retries:** an uncertain create is settled by looking the event up first.
+
+### Integrity rules
+
+- **No cross-channel merging:** contacts are unique per `(channel, sender id)`.
+- **No duplicate messages:** unique per `(channel, provider message id)`, so re-delivered webhooks
+  and re-polled mail are stored once.
+- **No duplicate bookings:** see above.
+- **Context survives refreshes and restarts:** everything is in Postgres; the open conversation is
+  in the URL.
+- **No transaction is held across a model call,** so a Take over click always lands.
+
+### Failures are visible
+
+LLM outage, bad key or malformed output (after one repair attempt), Google sign-in expiry, Meta
+token or permission errors, a wrong webhook secret, a calendar that cannot be read, an uncertain
+booking: each one sends nothing misleading, flags the conversation **Needs you** with the reason
+and a **Retry** button, and turns the affected connection red in the Connections menu.
+
+## Code layout (Assignment 01)
+
+| Module | Responsibility |
+|---|---|
+| `app/policy.py`, `app/default_policy.yaml` | Policy schema, validation, versioned storage |
+| `app/models.py`, `app/migrate.py` | Tables and integrity rules; add-missing-columns on start-up |
+| `app/inbound.py`, `app/outbound.py` | One entry and one exit for all channels; dedupe; send status |
+| `app/channels/gmail.py`, `whatsapp.py`, `instagram.py` | Channel adapters |
+| `app/webhooks.py`, `app/meta.py` | Meta webhooks, signatures, Graph API errors, connection health |
+| `app/google_oauth.py`, `app/poller.py` | Google sign-in and token refresh; inbox polling |
+| `app/llm.py` | Groq client: timeouts, one safe retry, token usage and cost |
+| `app/extraction.py` | LLM form-filling and quote verification |
+| `app/rules.py`, `app/routing.py` | Qualification and routing: plain code |
+| `app/replies.py` | Reply wording, draft checks, templates |
+| `app/gcal.py`, `app/booking.py` | Free/busy, slots, idempotent booking |
+| `app/pipeline.py` | The per-message flow above, with a per-conversation lock |
+| `app/guards.py` | Takeover check before every automatic action |
+| `app/api.py`, `app/static`, `app/templates` | Dashboard API and UI |
+
+## Tests
+
+`pytest -q` runs 127 tests in about 5 seconds, against in-memory fakes of Google, Groq and Meta
+(`tests/fake_google.py`, `tests/fake_groq.py`, and fake Graph APIs inside the WhatsApp and Instagram
+tests). The fakes exist only in tests; the running app always talks to the real APIs. Tests named
+`test_REQUIRED_*` cover the brief's required cases: the full booking run, prompt injection,
+takeover during processing, repeated confirmation, and a newly occupied slot.
+
+## Cost per run
+
+Measured from the live action log (each `lead_assessed` entry stores token counts and cost):
+
+- **Extraction**, gpt-oss-120b: 1,000–1,300 input and 300–350 output tokens, **$0.00034–0.00040
+  per inbound message**.
+- **Reply wording**, gpt-oss-20b: about 300 input and 100 output tokens, about **$0.00005**.
+- **A whole lead** (3–5 messages to a booking): about **$0.002**. Prices: Groq, November 2026.
+
+## Bugs diagnosed along the way
+
+- **Take over could be blocked while the model was thinking.** The pipeline held a database
+  transaction across the LLM call. Found by a test that simulates an operator clicking Take over
+  mid-call; fixed by committing before every model call.
+- **An injection message erased a qualified lead's facts.** Seen live: the model returned blanks
+  for earlier facts, and the lead dropped to "needs info". Fixed: verified facts carry over unless
+  the lead corrects them (corrections still win).
+- **Meta delivered no real webhooks.** Diagnosed from the dashboard's "last message from Meta"
+  indicator and Meta's test button: the Meta app was unpublished. Fixed by adding privacy and
+  data-deletion pages and publishing.
+- **Instagram tokens from Meta's new "Unified login"** were Facebook-style, not Instagram Login
+  tokens; added detection and the Facebook Page route.
+- **A red banner from one conversation showed on another.** A CSS `display` rule overrode the
+  `hidden` attribute.
+- **Uptime monitor reported the app down** while it was up: the monitor checks with `HEAD`; the
+  health route now answers it.
+
+## Known limitations
+
+- WhatsApp replies are blocked by Meta (see above).
+- Instagram: the Page subscription call needs `pages_manage_metadata`, which this app's use case
+  does not offer; DMs arrive anyway, and the app says so rather than raising an alarm.
+- The Google OAuth app is published but unverified, so its consent screen shows Google's
+  "unverified app" warning. That is fine for the developer's own test account.
+- One meeting per lead; rescheduling and cancelling are out of scope.
+- Availability comes from one test calendar standing in for the team; the fictional reps have
+  no calendars of their own (the rep is named in the event).
+- Slots are in the business time zone (IST), labelled. Budgets in other currencies use the
+  policy's fixed rates.
+- A single Render instance: the per-conversation lock is in-process.
+- No full migrations: tables are created on start-up, and missing columns are added.
 
 ## Run locally
 
 ```bash
 pip install -r requirements.txt
 cp .env.example .env            # optional; defaults work for local runs
-python -m scripts.seed_demo     # optional: 3 conversations marked "Sample data"
-uvicorn app.main:app --reload
-# open http://localhost:8000
+python -m scripts.seed_demo     # optional: sample conversations, clearly labelled "Sample data"
+uvicorn app.main:app --reload   # http://localhost:8000
 pytest -q
 ```
-
-`python -m scripts.seed_demo --clear` removes the sample conversations. Seeding refuses
-to run when `APP_ENV=production`. Sample rows are labelled in the UI and are never
-presented as live channel integrations.
 
 ## Deploy on Render
 
 1. Push this repository to GitHub.
-2. In Render choose **New > Blueprint** and select the repository. `render.yaml`
-   creates the web service and a Postgres database.
-3. Fill in the secret environment variables Render asks for (at minimum
-   `DASHBOARD_PASSWORD` and `PUBLIC_BASE_URL`).
-
-## Architecture (so far)
-
-| Module | Responsibility |
-|---|---|
-| `app/policy.py` + `default_policy.yaml` | Business policy schema, cross-reference validation, versioned storage. Reps table is synced from the policy. |
-| `app/models.py` | Tables and the integrity rules below. |
-| `app/guards.py` | `require_automation_allowed()`, called right before every automatic outbound action. |
-| `app/actions.py` | Append-only action log. |
-| `app/api.py` | Dashboard JSON API (behind HTTP Basic login). |
-| `app/static`, `app/templates` | Inbox, conversation, lead file, policy editor. |
-| `app/inbound.py` | One entry point for every inbound message on any channel: contact lookup, dedupe, logging. |
-| `app/outbound.py` | Sends on the conversation's own channel; takeover guard for automatic messages; failed/uncertain sends are recorded, never silently retried. |
-| `app/google_oauth.py` | Google sign-in, token refresh, expiry detection. |
-| `app/channels/gmail.py` | Gmail polling and threaded replies. |
-| `app/poller.py` | Background loop (every 20 s) plus "Check inbox now". |
-| `app/llm.py` | Groq client: timeouts, one safe retry, token usage and cost, health shown in the UI. |
-| `app/extraction.py` | LLM fills a form of facts, each with a quote; code verifies every quote. |
-| `app/rules.py` | Qualification: plain code applying the policy. |
-| `app/routing.py` | Picks the rep from the policy's routing rules. |
-| `app/replies.py` | Code decides what to say; the LLM words it; the draft is checked or replaced by a template. |
-| `app/pipeline.py` | Ties it together per inbound message, with a per-conversation lock. |
-| `app/migrate.py` | Adds new columns to an existing database on start-up. |
-| `app/meta.py` | Meta webhook signature check, Graph API calls, readable error codes, connection health. |
-| `app/webhooks.py` | Public webhook endpoints: verification handshake, signature check, store, then process in the background. |
-| `app/channels/whatsapp.py` | WhatsApp payload parsing, delivery receipts, sending. |
-| `app/gcal.py` | Google Calendar free/busy, slot generation, event lookup and creation. |
-| `app/booking.py` | Offering slots, reading the choice, booking exactly once (see below). |
-| `app/channels/instagram.py` | Instagram DM parsing (echo filtering), username lookup, sending, account linking. |
-
-### How a message becomes a decision (Step 3)
-
-```
-inbound message ─► takeover? ─yes─► stay quiet (logged)
-        │no
-        ▼
-LLM: fill the form (service, budget, start, role, company, intent) + exact quote for each
-        ▼
-code: is every quote really in the lead's messages? are values on the policy's lists?
-      (anything failing is dropped and logged as "evidence rejected")
-        ▼
-code: policy rules ─► qualified / needs info / not qualified, with a reason per rule
-        ▼
-code: routing rules ─► rep (qualified only)
-        ▼
-code: next move (ask for ≤2 missing facts · decline once · introduce rep · hand to a person)
-        ▼
-LLM: word it from an allowed-facts list ─► code checks the draft ─► unsafe? use the template
-        ▼
-takeover guard again ─► send on the same channel
-```
-
-**The LLM has no authority.** It never sees or returns a status, never chooses a rep and
-never decides to book. Its only outputs are a form of facts and the wording of a reply.
-That is why prompt injection is contained by design rather than by prompt wording: the
-injection test feeds a *fully compromised* model answer (invented quotes, a fake
-`"status": "qualified"` key, a reply claiming a booking with "our CEO") and checks that the
-lead stays "needs info", no rep is assigned and the safe template is sent.
-
-**Grounding.** Every fact shown in the lead panel carries the lead's own words; select the
-quote to see it highlighted in the conversation. Reply drafts are rejected if they claim a
-booking, name a rep other than the assigned one, mention a job title like CEO, state an
-amount not in the policy, or contain links, emails or phone numbers.
-
-**Failures are visible.** If Groq is down, rate-limited, returns malformed output twice, or
-the key is wrong, nothing is sent; the conversation is flagged **Needs you** with the reason,
-the LLM connection turns red, and **Retry assistant** re-runs it once fixed. After
-`max_follow_up_questions` unanswered questions the assistant hands over to a person.
-
-**Models.** `openai/gpt-oss-120b` for extraction with strict JSON-schema output, and
-`openai/gpt-oss-20b` for reply wording. (`llama-3.3-70b-versatile` was retired on Groq on
-2026-08-16.) Both are configurable with `GROQ_MODEL` and `GROQ_REPLY_MODEL`.
-
-**Cost per inbound message (estimate).** About 1,500 input and 300 output tokens for
-extraction on gpt-oss-120b (~$0.0004) plus about 300 input and 100 output tokens for the reply
-on gpt-oss-20b (~$0.00005): **under $0.001 per message**, roughly **$0.002–0.004 per lead**
-over a 3–5 message conversation. Actual token counts and cost for every call are stored in the
-action log (`lead_assessed` entry, "llm_usage").
-
-### Email channel: approach
-
-**Polling Gmail's history API rather than push.** Gmail push needs a Pub/Sub topic and
-subscription, and the push message only says *something* changed, so you still call
-`history.list`. Polling the same history cursor every 20 seconds is simpler and just as
-exact. The cursor advances only after every message in a batch is stored; a failure
-mid-batch repeats the batch next time, and the dedupe rule drops what was already stored.
-
-Mail that is never answered: our own sent mail, drafts, spam, auto-replies
-(`Auto-Submitted`), bulk or list mail (`Precedence`, `List-Id`, `List-Unsubscribe`) and
-`no-reply@` senders. Replies keep the Gmail thread (`threadId`, `In-Reply-To`,
-`References`) and quoted earlier text is stripped before the message is stored.
-
-**Personal mailbox safety.** With `EMAIL_INBOX_ADDRESS` set (for example `you+lumen@gmail.com`),
-only mail addressed to it, or replies in a thread the assistant already handles, is treated
-as an inquiry. Other mail is checked by its address headers only, never downloaded, stored
-or logged. Replies carry that address as `Reply-To`.
-
-One consent screen grants Gmail and Calendar access for the same test account. If a token
-refresh returns `invalid_grant`, the connection is marked **Sign-in expired**, the top bar
-turns red and a toast appears; a Reconnect button is in the Connections menu.
-
-### WhatsApp channel (Step 4)
-
-WhatsApp Cloud API with Meta's free **test number**, sending to recipients added to the test
-number's allowed list (the brief's "authorised test senders").
-
-- **Webhook** `GET/POST /webhooks/whatsapp`. The GET handshake checks `META_VERIFY_TOKEN`.
-  Every POST must carry a valid `X-Hub-Signature-256` (HMAC-SHA256 of the raw body with
-  `META_APP_SECRET`); unsigned or forged calls get 401 and are logged.
-- **Fast acknowledgement.** New messages are stored (deduped by `wamid`) and Meta gets its
-  200 immediately; the LLM pipeline runs afterwards in the background, so a slow model
-  never causes Meta to re-deliver. If it does re-deliver, the duplicate is dropped.
-- **Non-text messages** (photos, voice notes) are stored with a note saying the assistant
-  only reads text, and their captions are kept. Emoji reactions are ignored.
-- **Delivery receipts** update each reply (sent, delivered, read). A `failed` receipt marks
-  the reply failed and flags the conversation with the reason.
-- **Readable errors.** Graph error codes become plain explanations in the UI, for example
-  131047 (outside the 24-hour window, so only templates are allowed), 131030 (number not on
-  the test number's allowed list) and 190 (token expired; the WhatsApp connection turns red).
-- Only messages for our own `phone_number_id` are processed.
-
-**24-hour rule.** WhatsApp allows free-form replies only within 24 hours of the lead's last
-message. The assistant always answers inside that window. An operator reply after 24 hours
-fails with a clear explanation; sending approved templates is out of scope for this prototype.
-
-### Instagram channel (Step 5)
-
-Instagram API with Instagram Login, for an Instagram **professional** account, with a
-second account added as an **Instagram tester** on the Meta app.
-
-- **Webhook** `GET/POST /webhooks/instagram`, same handshake and signature check as WhatsApp.
-  Meta's documentation is ambiguous about which secret signs Instagram Login webhooks, so the
-  signature is accepted if it matches either `INSTAGRAM_APP_SECRET` or `META_APP_SECRET`.
-- **Account linking is automatic.** On start-up (and from Connections > Link Instagram account)
-  the app reads which professional account the token belongs to and calls
-  `me/subscribed_apps?subscribed_fields=messages`, so no manual Graph API call is needed.
-- **Echoes are skipped.** Instagram sends our own replies back as `is_echo` messages; they are
-  ignored, as are deletions, reactions and read receipts. DMs are deduped by `mid`.
-- The sender's `@username` is looked up for display; if that fails the IGSID is shown.
-- **Authorised test senders only.** `INSTAGRAM_ALLOWED_SENDERS` lists the test accounts the assistant
-  may answer. DMs from anyone else are ignored and never stored, so a personal account's friends
-  never receive automatic replies. Connections shows a warning while the list is empty.
-- Replies are trimmed to Instagram's 1,000-byte limit. A reply outside the 24-hour window
-  (error subcode 2018278) is explained in plain words and the conversation is flagged.
-
-### Calendar booking (Step 6)
-
-Google Calendar API, chosen over Calendly or Cal.com because it lets us **set the event id**,
-which makes booking idempotent at the provider. Availability comes from one test calendar
-(`GOOGLE_CALENDAR_ID`, default the connected account's primary calendar), standing in for the
-team calendar; the fictional reps have no calendars of their own, so the rep is recorded in the
-event description.
-
-```
-qualified ─► free/busy for the booking window ─► 3 free slots (working hours, notice,
-             not on offer to anyone else, spread across days), listed by code
-lead replies ─► "2" / "option 2" / "the second one" (code)  or  a quoted natural choice (LLM)
-             ─► vague ("yes", "1 or 2") → "which one?"  ·  "none work" → different times
-chosen slot ─► same slot already booked? → "you're all set" (no new event)
-            ─► re-check free/busy → taken since offered? → "just taken" + fresh slots
-            ─► takeover guard
-            ─► booking row (pending) → create event with id = hash(conversation, slot)
-                 200 → confirmed · 409 → already exists → confirmed
-                 timeout → uncertain → GET the id: found → confirmed;
-                           verified absent → create again with the same id
-            ─► confirmation on the lead's channel
-```
-
-- **No duplicate bookings:** one booking row per idempotency key (unique in the database) and
-  the same key as the Google event id, so even two racing confirmations produce one event.
-- **No conflicting bookings:** availability is re-checked immediately before creating.
-- **No blind retries:** an uncertain create is settled by looking the event up first.
-- **One meeting per lead;** any further "yes" or "2" gets a reminder of the booked time.
-- Failures (calendar not connected, no free times, booking failed or still uncertain) send
-  nothing misleading and flag the conversation with the reason and a Retry action.
-
-### Integrity rules enforced by the database
-
-- **No cross-channel merging.** Contacts are unique per `(channel, external_id)`.
-- **No duplicate messages.** Messages are unique per `(channel, channel_message_id)`, so
-  a re-delivered webhook or re-polled email is stored once.
-- **No duplicate bookings.** Bookings are unique per `idempotency_key`; the same key
-  becomes the Google Calendar event id (Step 4).
-- **Policy can't reference staff or services that don't exist.** Validation rejects the save
-  and the previous version stays active. Unknown or misspelled keys are rejected too.
+2. In Render choose **New > Blueprint** and select the repository. `render.yaml` creates the web
+   service and a Postgres database.
+3. Fill in the secret environment variables Render asks for.
 
 ## Environment variables
 
-`APP_ENV`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD`,
-`GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REPLY_MODEL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALENDAR_ID`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS`,
-`META_APP_SECRET`, `META_VERIFY_TOKEN`, `META_GRAPH_VERSION` (default `v23.0`),
-`WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_SECRET`.
+Names only; values live in Render, never in this repository.
 
-## Known limitations (so far)
-
-- Tables are created with `create_all`, plus a small add-missing-columns step on start-up;
-  there are no full migrations (fine for a prototype).
-- The per-conversation lock is in-process. That is correct for the single Render instance;
-  running several instances would need a database lock instead.
-- Operators can delete a conversation and everything stored about it (data deletion requests).
-- Rescheduling and cancelling are out of scope; one meeting per lead.
-- Slots are shown in the business time zone (IST), labelled with it.
-- Budgets in other currencies use fixed rates from the policy, not live exchange rates.
-- Google refresh tokens for apps in **Testing** mode expire after 7 days. Reconnect Google
-  from the Connections menu if the demo runs longer.
-- Tests use in-memory fakes of Google's and Groq's endpoints (`tests/fake_google.py`,
-  `tests/fake_groq.py`, and fake Graph APIs in `tests/test_whatsapp.py` and `tests/test_instagram.py`). That is test scaffolding only; the running app always talks to the
-  real APIs.
-- Render's free web service sleeps after ~15 minutes idle. The first webhook after
-  sleep is slow; Meta retries undelivered webhooks, and duplicates are dropped by the
-  message uniqueness rule.
+| Group | Variables |
+|---|---|
+| App | `APP_ENV`, `DATABASE_URL`, `PUBLIC_BASE_URL`, `DASHBOARD_USER`, `DASHBOARD_PASSWORD` |
+| LLM | `GROQ_API_KEY`, `GROQ_MODEL`, `GROQ_REPLY_MODEL` |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_CALENDAR_ID`, `EMAIL_INBOX_ADDRESS`, `GMAIL_POLL_SECONDS` |
+| Meta | `META_APP_SECRET`, `META_VERIFY_TOKEN`, `META_GRAPH_VERSION` |
+| WhatsApp | `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` |
+| Instagram | `INSTAGRAM_ACCESS_TOKEN`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_ALLOWED_SENDERS` |
 
 ## AI tools used
 
-Built with Claude (Anthropic) as a coding assistant; all code is reviewed and explained
-in the walkthrough.
+Built with Claude (Anthropic) as a pair programmer for code, tests and documentation. Every
+design decision and every line was reviewed, and the walkthrough explains the code.
