@@ -48,7 +48,7 @@ def _link_instagram_login(session: Session) -> dict:
     graph_post(session, PROVIDER, "me/subscribed_apps", token, None, base=BASE,
                params={"subscribed_fields": "messages"}, record_health=False)
     return {"mode": "instagram_login", "username": me.get("username", ""),
-            "ig_user_id": str(me.get("user_id") or me.get("id", "")), "page_id": "", "page_token": ""}
+            "ig_user_id": str(me.get("user_id") or me.get("id", "")), "page_id": "", "page_token": "", "warning": ""}
 
 
 _USE_PAGE_TOKEN = ("Use a Page token instead: Instagram API > API setup with Facebook login > "
@@ -89,15 +89,17 @@ def _find_page(session: Session, token: str) -> dict:
 def _link_facebook_login(session: Session) -> dict:
     page = _find_page(session, settings.instagram_token)
     ig = page["instagram_business_account"]
+    warning = ""
     try:
         graph_post(session, PROVIDER, f"{page['id']}/subscribed_apps", page["access_token"], None, base=FB_BASE,
                    params={"subscribed_fields": "messages"}, record_health=False)
     except MetaAPIError as exc:
-        raise MetaAPIError(f"Found the Page '{page.get('name', page['id'])}' with Instagram @{ig.get('username', '?')}, "
-                           f"but subscribing it to messages failed: {exc.reason} This step needs "
-                           "pages_manage_metadata (and instagram_manage_messages), and you must be an admin of the Page.")
+        # Keep the link (sending works without it) but say clearly that DMs may not arrive.
+        warning = (f"Linked, but subscribing the Page '{page.get('name', page['id'])}' to messages failed "
+                   f"({exc.reason}). New DMs may not reach the inbox until the token includes "
+                   "pages_manage_metadata: add the 'Manage everything on your Page' use case, then make a new token.")
     return {"mode": "facebook_login", "username": ig.get("username", ""), "ig_user_id": str(ig["id"]),
-            "page_id": str(page["id"]), "page_token": page["access_token"]}
+            "page_id": str(page["id"]), "page_token": page["access_token"], "warning": warning}
 
 
 def link_account(session: Session, actor: str = "system") -> str:
@@ -121,6 +123,12 @@ def link_account(session: Session, actor: str = "system") -> str:
                  "page_id": found["page_id"]}
     row.credentials = {"page_token": found["page_token"]} if found["page_token"] else {}
     how = "Facebook Page" if found["mode"] == "facebook_login" else "Instagram Login"
+    if found["warning"]:
+        log_action(session, actor=actor, action="instagram_linked", level="warn",
+                   summary=f"Instagram {row.account} linked via {how}, but not subscribed to messages")
+        session.commit()
+        set_health(session, PROVIDER, "error", found["warning"])
+        return row.account + " (linked, but see the warning under Instagram)"
     log_action(session, actor=actor, action="instagram_linked",
                summary=f"Instagram {row.account} linked via {how}; message webhooks subscribed")
     session.commit()

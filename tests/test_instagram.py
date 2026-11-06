@@ -218,3 +218,21 @@ def test_user_token_answered_with_permission_error_still_finds_the_page(client, 
 
     monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(handler))
     assert client.post("/api/connections/instagram/link").json()["account"] == "@lumen.test"
+
+
+def test_missing_page_subscription_permission_still_links_with_a_warning(client, session, monkeypatch):
+    fake = FakeFacebookRoute()
+    original = fake.handler
+
+    def handler(request):
+        if request.url.path == "/v23.0/PAGE1/subscribed_apps":
+            return httpx.Response(403, json={"error": {"code": 200, "message": "(#200) permission"}})
+        return original(request)
+
+    monkeypatch.setattr(meta, "HTTP_TRANSPORT", httpx.MockTransport(handler))
+    assert "linked, but" in client.post("/api/connections/instagram/link").json()["account"]
+    status = {c["provider"]: c for c in client.get("/api/connections").json()}["instagram"]
+    assert status["status"] == "error" and "pages_manage_metadata" in status["error"]
+    row = session.get(Connection, "instagram")
+    session.refresh(row)
+    assert row.state["page_id"] == "PAGE1"    # sending still works
