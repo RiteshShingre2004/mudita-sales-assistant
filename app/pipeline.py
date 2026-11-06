@@ -97,6 +97,17 @@ def _run(session: Session, conv: Conversation) -> None:
     slot_choice = ext.fields.pop("slot_choice", None)
     ext.evidence.pop("slot_choice", None)
 
+    # Verified facts are kept: a new message can update a fact (a correction wins), but a fact the
+    # model did not return this time is not erased. Old evidence must still point at a stored message.
+    kept_ids = {m.id for m in conv.messages if m.direction == "in"}
+    carried = [k for k in (lead.fields or {})
+               if k not in ext.fields and (lead.evidence or {}).get(k, {}).get("message_id") in kept_ids]
+    for k in carried:
+        ext.fields[k] = lead.fields[k]
+        ext.evidence[k] = lead.evidence[k]
+        if k == "budget_usd" and "budget_original" in (lead.fields or {}):
+            ext.fields.setdefault("budget_original", lead.fields["budget_original"])
+
     # 3. rules
     decision = decide(policy, ext.fields, ext.notes)
     lead.fields, lead.evidence = ext.fields, ext.evidence
@@ -114,7 +125,7 @@ def _run(session: Session, conv: Conversation) -> None:
                summary=(f"Status {decision.status.replace('_', ' ')}"
                         + (f" (was {previous_status.replace('_', ' ')})" if previous_status != decision.status else "")
                         + f": {decision.reasons[-1] if decision.reasons else 'no facts yet'}"),
-               detail={"policy_version": version, "fields": ext.fields, "evidence": ext.evidence,
+               detail={"policy_version": version, "fields": ext.fields, "evidence": ext.evidence, "carried_over": carried,
                        "dropped": ext.dropped, "llm_usage": ext.usage, "llm_raw": ext.raw})
     session.commit()
 
