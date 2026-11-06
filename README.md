@@ -300,6 +300,10 @@ Measured from the live action log (each `lead_assessed` entry stores token count
 
 ## Bugs diagnosed along the way
 
+- **Groq rate limit stopped the first live agents run.** Intake succeeded; Planning got HTTP 429
+  (the free tier's tokens-per-minute limit). The run stopped visibly with Intake's output kept, and
+  Resume continued from Planning. Fixed by having the agents wait as long as Groq asks (up to
+  45 s, 4 attempts), using compact prompts and setting tighter output limits.
 - **Take over could be blocked while the model was thinking.** The pipeline held a database
   transaction across the LLM call. Found by a test that simulates an operator clicking Take over
   mid-call; fixed by committing before every model call.
@@ -317,6 +321,9 @@ Measured from the live action log (each `lead_assessed` entry stores token count
   health route now answers it.
 
 ## Known limitations
+
+- On Groq's free tier (about 8,000 tokens per minute per model), an agents run can pause for
+  up to a minute between steps while it waits out the limit. A paid Groq tier removes the waits.
 
 - WhatsApp replies are blocked by Meta (see above).
 - Instagram: the Page subscription call needs `pages_manage_metadata`, which this app's use case

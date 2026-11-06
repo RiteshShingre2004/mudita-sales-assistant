@@ -363,3 +363,26 @@ def test_checker_catches_each_rule():
     assert "R6" in changed(lambda t: t[4].update(deadline="2026-11-30"))               # after go-live
     assert "GROUNDING" in changed(lambda t: t[0].update(owner_basis="fact"))           # Arjun not in a fact
     assert "STRUCTURE" in changed(lambda t: t[0].update(depends_on=["T5"]))            # cycle
+
+
+def test_agents_wait_out_a_groq_rate_limit(client, session, agents):
+    """Seen live: Groq's free tier returned 429 (tokens per minute) on the Planning call.
+    The agents now wait as Groq asks and retry, instead of stopping the run."""
+    original = agents.handler
+    state = {"limited": 2}
+
+    def limited(request):
+        body = json.loads(request.content)
+        if "Planning Agent" in body["messages"][0]["content"] and state["limited"]:
+            state["limited"] -= 1
+            return httpx.Response(429, json={"error": {"message": "Rate limit reached for model on tokens per "
+                                                       "minute (TPM): Limit 8000. Please try again in 1.9s."}})
+        return original(request)
+
+    import app.llm as llm_module
+    monkeypatch_transport = httpx.MockTransport(limited)
+    llm_module.HTTP_TRANSPORT = monkeypatch_transport
+    sid = new_session(client)
+    rid = new_run(client, sid)
+    assert detail(client, sid, rid)["status"] == "completed"
+    assert state["limited"] == 0

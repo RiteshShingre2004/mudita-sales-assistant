@@ -244,7 +244,7 @@ def execute(run_id: str) -> None:
             run = db.get(AgRun, run_id)
             reason = getattr(exc, "reason", None) or str(exc)
             run.status, run.error = "failed", reason
-            event(db, run, f"Stopped: {reason}. Completed steps are kept; Resume continues from here.", "error")
+            event(db, run, f"Stopped: {reason.rstrip('.')}. Completed steps are kept; Resume continues from here.", "error")
             db.commit()
         except Exception as exc:  # unexpected: keep the run resumable and visible
             log.exception("run %s crashed", run_id)

@@ -299,7 +299,8 @@ function renderHead() {
     </label>`;
   const err = $("run-error");
   err.hidden = !run.error;
-  err.textContent = run.error ? `${run.error}${canResume ? " Completed steps are kept; Resume continues from the failed step." : ""}` : "";
+  const sentence = (t) => /[.!?)]$/.test(t) ? t : t + ".";
+  err.textContent = run.error ? `${sentence(run.error)}${canResume ? " Completed steps are kept; Resume continues from the failed step." : ""}` : "";
   if (canResume) $("resume").onclick = async () => {
     try {
       await api(`/api/agents/sessions/${sid}/runs/${rid}/resume`, { method: "POST" });

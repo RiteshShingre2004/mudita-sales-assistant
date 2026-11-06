@@ -8,6 +8,7 @@
   shows in the dashboard.
 """
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -77,7 +78,11 @@ def chat(
     json_schema: dict | None = None,
     temperature: float = 0.0,
     max_tokens: int = 1200,
+    max_attempts: int = 2,
+    max_wait: float = 5.0,
 ) -> LLMResult:
+    """max_attempts / max_wait: background work (the agents) can afford to wait out a rate
+    limit; a live reply to a lead should not hang, so the defaults stay short."""
     if not settings.groq_api_key:
         _record_health(session, "error", "GROQ_API_KEY is not set")
         raise LLMError("The language model is not configured (GROQ_API_KEY missing)")
@@ -93,7 +98,7 @@ def chat(
 
     started = time.monotonic()
     last_reason = ""
-    for attempt in (1, 2):
+    for attempt in range(1, max_attempts + 1):
         try:
             with httpx.Client(timeout=httpx.Timeout(45.0, connect=10.0), transport=HTTP_TRANSPORT) as http:
                 resp = http.post(URL, json=body, headers={"Authorization": f"Bearer {settings.groq_api_key}"})
@@ -120,15 +125,31 @@ def chat(
                 raise LLMError(f"model {model} is not available")
             if resp.status_code == 400:
                 raise LLMError(f"Groq refused the request: {_short(resp)}")
-            last_reason = "Groq is rate limiting requests" if resp.status_code == 429 else f"Groq error {resp.status_code}"
-            if attempt == 1:
-                retry_after = resp.headers.get("retry-after", "")
-                time.sleep(min(float(retry_after) if retry_after.replace(".", "", 1).isdigit() else 1.5, 5.0))
+            if resp.status_code == 413:
+                _record_health(session, "error", "A request is larger than Groq's per-minute token limit.")
+                raise LLMError("the request is larger than Groq's per-minute token limit for this model")
+            last_reason = ("Groq is rate limiting requests (per-minute token limit)" if resp.status_code == 429
+                           else f"Groq error {resp.status_code}")
+            if attempt < max_attempts:
+                time.sleep(min(_retry_after(resp), max_wait))
                 continue
-        if attempt == 1:
+        if attempt < max_attempts:
             time.sleep(1.0)
     _record_health(session, "error", f"Last call failed: {last_reason}")
     raise LLMError(last_reason)
+
+
+def _retry_after(resp: httpx.Response) -> float:
+    """Seconds Groq asks us to wait: the retry-after header, or "try again in 1m2.5s" in the message."""
+    header = resp.headers.get("retry-after", "")
+    try:
+        return float(header) + 0.5
+    except ValueError:
+        pass
+    m = re.search(r"try again in (?:(\d+)m)?([\d.]+)s", resp.text)
+    if m:
+        return int(m.group(1) or 0) * 60 + float(m.group(2)) + 0.5
+    return 2.0
 
 
 def _short(resp: httpx.Response) -> str:

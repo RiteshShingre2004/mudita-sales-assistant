@@ -53,15 +53,21 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[\"'`]", "", s)).strip(" .,;:!?")
 
 
+def _j(obj) -> str:
+    """Compact JSON for prompts: fewer tokens against Groq's per-minute limit."""
+    return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
+
+
 def _call(session: Session, system: str, user: str, schema: dict, model_cls, cross_check=None,
-          max_tokens: int = 6000) -> tuple[dict, list[dict]]:
+          max_tokens: int = 3500) -> tuple[dict, list[dict]]:
     """One LLM call with one repair attempt. Returns (validated output, usage)."""
     messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
     usage: list[dict] = []
     problem = ""
     for attempt in (1, 2):
+        # Agents run in the background, so they wait out Groq's per-minute limits instead of failing.
         result = chat(messages, model=settings.groq_model, session=session, json_schema=schema,
-                      temperature=0.0, max_tokens=max_tokens)
+                      temperature=0.0, max_tokens=max_tokens, max_attempts=4, max_wait=45.0)
         usage.append(result.usage())
         try:
             parsed = model_cls.model_validate(json.loads(result.content))
@@ -107,7 +113,7 @@ class IntakeAgent:
     def run(self, session: Session, inp: dict, transcript: str) -> AgentResult:
         system = INTAKE_SYSTEM.format(year=inp["meeting_date"][:4])
         user = f"Meeting date: {inp['meeting_date']}\n\nTranscript:\n{inp['transcript_numbered']}"
-        out, usage = _call(session, system, user, INTAKE_SCHEMA, IntakeOutput, max_tokens=5000)
+        out, usage = _call(session, system, user, INTAKE_SCHEMA, IntakeOutput, max_tokens=3000)
         verified, notes = verify_intake(out, transcript)
         if not verified["facts"]:
             raise AgentOutputInvalid("no extracted fact survived source verification", usage)
@@ -224,16 +230,16 @@ class PlanningAgent:
         }
 
     def run(self, session: Session, inp: dict) -> AgentResult:
-        user = (f"Company rules:\n{json.dumps(inp['rules'], indent=1)}\n\n"
+        user = (f"Company rules:\n{_j(inp['rules'])}\n\n"
                 f"Source facts (context version {inp['context_version']}):\n"
-                f"{json.dumps(inp['facts'], indent=1)}\n\nConflicts:\n{json.dumps(inp['conflicts'])}\n"
-                f"Missing:\n{json.dumps(inp['missing'])}\n")
+                f"{_j(inp['facts'])}\n\nConflicts:\n{_j(inp['conflicts'])}\n"
+                f"Missing:\n{_j(inp['missing'])}\n")
         if inp["session_notes"]:
             user += f"\nNotes from this workspace (private to it):\n{inp['session_notes']}\n"
         if inp["previous_plan"]:
-            user += (f"\nYour previous plan:\n{json.dumps(inp['previous_plan'], indent=1)}\n\n"
+            user += (f"\nYour previous plan:\n{_j(inp['previous_plan'])}\n\n"
                      f"Corrections from the Review Agent (fix all of them):\n"
-                     f"{json.dumps(inp['corrections'], indent=1)}\n")
+                     f"{_j(inp['corrections'])}\n")
         fact_ids = {f["id"] for f in inp["facts"]}
         out, usage = _call(session, PLANNING_SYSTEM, user, PLAN_SCHEMA, PlanOutput,
                            cross_check=lambda p: plan_cross_check(p, fact_ids))
@@ -266,12 +272,12 @@ class ReviewAgent:
                 "plan": plan, "checker_findings": findings}
 
     def run(self, session: Session, inp: dict) -> AgentResult:
-        user = (f"Transcript:\n{inp['transcript_numbered']}\n\nCompany rules:\n{json.dumps(inp['rules'], indent=1)}"
-                f"\n\nSource facts (context version {inp['context_version']}):\n{json.dumps(inp['facts'], indent=1)}"
-                f"\nConflicts:\n{json.dumps(inp['conflicts'])}\n\nPlan to review:\n{json.dumps(inp['plan'], indent=1)}"
+        user = (f"Transcript:\n{inp['transcript_numbered']}\n\nCompany rules:\n{_j(inp['rules'])}"
+                f"\n\nSource facts (context version {inp['context_version']}):\n{_j(inp['facts'])}"
+                f"\nConflicts:\n{_j(inp['conflicts'])}\n\nPlan to review:\n{_j(inp['plan'])}"
                 f"\n\nAutomatic rule checker findings ({len(inp['checker_findings'])}):\n"
-                f"{json.dumps(inp['checker_findings'], indent=1)}")
-        out, usage = _call(session, REVIEW_SYSTEM, user, REVIEW_SCHEMA, ReviewOutput, max_tokens=5000)
+                f"{_j(inp['checker_findings'])}")
+        out, usage = _call(session, REVIEW_SYSTEM, user, REVIEW_SCHEMA, ReviewOutput, max_tokens=2500)
         return AgentResult(out, usage)
 
 
