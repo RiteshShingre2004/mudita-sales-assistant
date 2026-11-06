@@ -83,7 +83,8 @@ def explain(code: int | None, fallback: str, subcode: int | None = None) -> str:
 
 
 def graph_post(session: Session, provider: str, path: str, token: str, payload: dict | None = None, *,
-               base: str = "https://graph.facebook.com", method: str = "POST", params: dict | None = None) -> dict:
+               base: str = "https://graph.facebook.com", method: str = "POST", params: dict | None = None,
+               record_health: bool = True) -> dict:
     url = f"{base}/{GRAPH_VERSION}/{path.lstrip('/')}"
     try:
         with httpx.Client(timeout=httpx.Timeout(20.0, connect=10.0), transport=HTTP_TRANSPORT) as http:
@@ -100,15 +101,16 @@ def graph_post(session: Session, provider: str, path: str, token: str, payload: 
     except ValueError:
         data = {}
     if resp.status_code == 200:
-        set_health(session, provider, "ok")
+        if record_health:
+            set_health(session, provider, "ok")
         return data
 
     err = data.get("error", {}) if isinstance(data, dict) else {}
     code = err.get("code")
     detail = (err.get("error_data") or {}).get("details") or err.get("message") or f"HTTP {resp.status_code}"
     reason = explain(code, detail, err.get("error_subcode"))
-    if code == 190 or resp.status_code == 401:
+    if record_health and (code == 190 or resp.status_code == 401):
         set_health(session, provider, "expired", reason)
-    elif code in (10, 200):
+    elif record_health and code in (10, 200):
         set_health(session, provider, "error", reason)
     raise MetaAPIError(reason, code=code, status=resp.status_code)
