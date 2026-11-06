@@ -230,6 +230,10 @@ function renderInput(s) {
 }
 
 function corrItem(c) {
+  if (c.overruled) {
+    return `<li class="overruled"><span class="ref">${esc(c.reference || "")}</span>${c.task_id ? `<b>${esc(c.task_id)}</b> ` : ""}<s>${esc(c.problem)}</s>
+    <span class="fix">Overruled by the rule checker: ${esc(c.overruled)}.</span><span class="who">Review Agent claim, not applied</span></li>`;
+  }
   return `<li><span class="ref">${esc(c.reference || "")}</span>${c.task_id ? `<b>${esc(c.task_id)}</b> ` : ""}${esc(c.problem)}
     <span class="fix">Fix: ${esc(c.fix)}</span>${c.from ? `<span class="who">${c.from === "rule_checker" ? "rule checker" : "Review Agent"}</span>` : ""}</li>`;
 }
@@ -271,6 +275,7 @@ function messageItem(m) {
       <div>${esc(m.summary)}</div>
       ${m.kind === "feedback" ? `<ul class="corr">${m.payload.corrections.map(corrItem).join("")}</ul>` : ""}
       ${m.kind === "final" ? `<ul class="corr">${m.payload.unresolved.map(corrItem).join("")}</ul>` : ""}
+      ${(m.payload.overruled || []).length ? `<ul class="corr">${m.payload.overruled.map(corrItem).join("")}</ul>` : ""}
     </li>`;
 }
 
@@ -323,11 +328,13 @@ function renderPlanTab() {
     $("tab-plan").innerHTML = `<p class="empty">The final plan appears here when the review loop finishes.</p>`;
     return;
   }
+  const over = res.overruled || [];
   const banner = res.approved
-    ? `<div class="ag-banner ok"><b>Approved</b> by the Review Agent in round ${res.rounds}, with no rule-checker findings. Built on context v${res.context_version}.</div>`
+    ? `<div class="ag-banner ok"><b>Approved</b> in round ${res.rounds}, with no rule-checker findings${over.length ? ` (the rule checker overruled ${over.length} false alarm(s) from the Review Agent)` : " and the Review Agent's sign-off"}. Built on context v${res.context_version}.</div>`
     : `<div class="ag-banner warn"><b>Needs a person:</b> ${res.unresolved.length} issue(s) still open after ${res.rounds} round(s).</div>`;
   $("tab-plan").innerHTML = banner +
     (!res.approved ? `<ul class="corr">${res.unresolved.map(corrItem).join("")}</ul>` : "") +
+    (over.length ? `<ul class="corr">${over.map(corrItem).join("")}</ul>` : "") +
     planTable(res.plan, true) +
     `<p class="ag-hint legend"><span class="basis fact">stated</span> said in the meeting (see its source fact) · <span class="basis rec">recommended</span> proposed by the Planning Agent</p>`;
 }

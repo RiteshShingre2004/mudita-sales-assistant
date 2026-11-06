@@ -386,3 +386,34 @@ def test_agents_wait_out_a_groq_rate_limit(client, session, agents):
     rid = new_run(client, sid)
     assert detail(client, sid, rid)["status"] == "completed"
     assert state["limited"] == 0
+
+
+def test_checker_overrules_a_false_weekend_claim_from_the_review_agent(client, session, agents):
+    """Seen live: the Review Agent said T2 fell on a weekend when it was due on a Thursday.
+    R2 is a date fact the checker decides exactly, so the false alarm is overruled and shown."""
+    def review(user):
+        n = int(re.search(r"Automatic rule checker findings \((\d+)\)", user).group(1))
+        if n:
+            return {"verdict": "revise", "summary": "fix", "corrections": [
+                {"task_id": "T2", "problem": "weekend", "fix": "weekday", "reference": "R2"}]}
+        return {"verdict": "revise", "summary": "Only violation is T2's weekend deadline", "corrections": [
+            {"task_id": "T2", "problem": "Deadline falls on a weekend", "fix": "Move to Monday", "reference": "R2"}]}
+    agents.review_override = review
+    sid = new_session(client)
+    rid = new_run(client, sid)
+    d = detail(client, sid, rid)
+    assert d["status"] == "completed" and d["result"]["approved"]
+    over = d["result"]["overruled"]
+    assert len(over) == 1 and over[0]["task_id"] == "T2" and "false alarm" in over[0]["overruled"]
+    assert any("overruled the Review Agent" in e["text"] for e in d["events"])
+
+
+def test_review_agent_judgement_calls_are_not_overruled(client, session, agents):
+    """Grounding / R3-style objections are not mechanical: the checker never dismisses them."""
+    agents.review_override = lambda user: {"verdict": "revise", "summary": "x", "corrections": [
+        {"task_id": "T2", "problem": "Owner not supported by the transcript", "fix": "Mark as recommendation",
+         "reference": "GROUNDING"}]}
+    sid = new_session(client)
+    rid = new_run(client, sid)
+    d = detail(client, sid, rid)
+    assert d["status"] == "needs_review" and not d["result"]["overruled"]

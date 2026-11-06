@@ -304,6 +304,13 @@ Measured from the live action log (each `lead_assessed` entry stores token count
   (the free tier's tokens-per-minute limit). The run stopped visibly with Intake's output kept, and
   Resume continued from Planning. Fixed by having the agents wait as long as Groq asks (up to
   45 s, 4 attempts), using compact prompts and setting tighter output limits.
+- **The Review Agent raised a false alarm in the live run.** After resuming, the plan went through 3
+  rounds. The Review Agent's last objection was "T2's deadline falls on a weekend", but T2 was due
+  Thu 19 Nov, and the rule checker agreed the date was fine. That objection alone sent the run to
+  "Needs a person". Working days (R2), workload (R5) and date order (R6) are things code can check
+  exactly. So when the Review Agent cites only those rules and the checker finds no such problem, the
+  checker now overrules it. The override is shown, struck through, with the reason, and logged as an
+  event. Judgement calls (grounding, owners, security and sign-off structure) are never overruled.
 - **Take over could be blocked while the model was thinking.** The pipeline held a database
   transaction across the LLM call. Found by a test that simulates an operator clicking Take over
   mid-call; fixed by committing before every model call.

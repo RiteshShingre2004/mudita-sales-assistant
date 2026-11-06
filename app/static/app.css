@@ -451,6 +451,8 @@ li[data-status="not_connected"] .conn-state { color: var(--st-needs); }
 .corr .ref { font-size: 11px; font-weight: 700; margin-right: 6px; padding: 0 5px; border-radius: var(--r-chip); background: var(--warn-bg); color: var(--warn-ink); }
 .corr .fix { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
 .corr .who { display: block; font-size: 11px; color: var(--muted); }
+.corr li.overruled { opacity: .75; border-left: 3px solid var(--muted); }
+.corr li.overruled .ref { background: var(--bg); color: var(--muted); border: 1px solid var(--muted); }
 .demo { background: var(--warn-bg); color: var(--warn-ink); padding: 6px 10px; border-radius: var(--r-chip); font-size: 13px; }
 .io-list { padding-left: 18px; margin: 0; display: grid; gap: 6px; font-size: 14px; }
 details.raw { margin-top: 12px; }

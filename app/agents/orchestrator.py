@@ -14,6 +14,7 @@ Guarantees:
   output is not affected), and they read the new version; older steps stay visible as history.
 - Runs belong to a session; nothing from one session is ever read while running another.
 """
+import re
 import logging
 import threading
 from datetime import date, datetime, timedelta, timezone
@@ -217,15 +218,43 @@ def _seed_violation(plan: dict, rules: CompanyRules) -> tuple[dict, str]:
     return plan, f"DEMO: injected a weekend deadline ({saturday:%a %d %b}) into {t['id']} of the first draft"
 
 
-def _merge(review: dict, findings: list[dict]) -> list[dict]:
-    merged = [{**c, "from": "review_agent"} for c in review.get("corrections", [])]
+# Rules the checker decides exactly from dates and counts. A Review Agent claim that one of
+# these is broken, when the checker finds no such problem for that task, is a false alarm.
+MECHANICAL_RULES = {"R2", "R5", "R6"}
+
+
+def _overruled(correction: dict, findings: list[dict], plan: dict) -> str | None:
+    """Why the checker overrules this Review Agent correction, or None if it stands."""
+    cited = set(re.findall(r"\bR\d+\b", correction.get("reference") or ""))
+    if not cited or not cited <= MECHANICAL_RULES:
+        return None                        # judgement calls (grounding, R1, R3, R4) stay with the reviewer
+    tid = correction.get("task_id")
+    if any(f["rule"] in cited and (f["task_id"] == tid or f["task_id"] is None) for f in findings):
+        return None
+    task = next((t for t in plan.get("tasks", []) if t["id"] == tid), None)
+    due = task.get("deadline") if task else None
+    shown = f"{date.fromisoformat(due):%a %d %b}" if due else "no deadline"
+    return (f"{'/'.join(sorted(cited))} check on {tid or 'the plan'} passes ({tid} is due {shown}), "
+            "so the Review Agent's objection was a false alarm")
+
+
+def _merge(review: dict, findings: list[dict], plan: dict) -> tuple[list[dict], list[dict]]:
+    """Combine the Review Agent's corrections with the checker's findings.
+    Returns (corrections that stand, Review Agent corrections the checker overruled)."""
+    merged, dismissed = [], []
+    for c in review.get("corrections", []):
+        why = _overruled(c, findings, plan)
+        if why:
+            dismissed.append({**c, "from": "review_agent", "overruled": why})
+        else:
+            merged.append({**c, "from": "review_agent"})
     for f in findings:
         already = any(c.get("task_id") == f["task_id"] and f["rule"] in (c.get("reference") or "")
                       for c in merged)
         if not already:
             merged.append({"task_id": f["task_id"], "problem": f["problem"], "fix": f["fix"],
                            "reference": f["rule"], "from": "rule_checker"})
-    return merged
+    return merged, dismissed
 
 
 def execute(run_id: str) -> None:
@@ -280,6 +309,8 @@ def _execute(db: Session, run: AgRun, sess: AgSession) -> None:
     version = ctx.version
     previous_plan, corrections = None, []
     plan, findings, review, rnd = {}, [], {}, 0
+    all_dismissed: list[dict] = []
+    approved = False
 
     # 2. Planning <-> Review, bounded
     for rnd in range(1, rules.max_review_rounds + 1):
@@ -308,13 +339,19 @@ def _execute(db: Session, run: AgRun, sess: AgSession) -> None:
             event(db, run, f"Review Agent: checking round {rnd} ({len(findings)} rule-checker finding(s))")
             _execute_step(db, run, r_step, r_inp, lambda: REVIEW.run(db, r_inp))
         review = r_step.output
-        corrections = _merge(review, findings)
-        approved = review["verdict"] == "approve" and not findings and not review.get("corrections")
+        corrections, dismissed = _merge(review, findings, plan)
+        for d in dismissed:
+            event(db, run, f"Rule checker overruled the Review Agent: {d['overruled']}", "warn")
+        all_dismissed.extend(dismissed)
+        # code decides: approved when nothing stands, even if the model's only objections were false alarms
+        approved = not corrections and (review["verdict"] == "approve" or bool(dismissed))
 
         if approved:
+            label = "approved" if not dismissed else "approved after the rule checker overruled a false alarm"
             _message(db, run, r_step, "review", "coordinator", "approval",
-                     f"Round {rnd}: approved", {"summary": review.get("summary", "")})
-            event(db, run, f"Review Agent approved the plan in round {rnd}")
+                     f"Round {rnd}: {label}", {"summary": review.get("summary", ""), "overruled": dismissed})
+            event(db, run, f"Plan approved in round {rnd}" + (" (rule checker overruled the Review Agent)"
+                                                               if dismissed else ""))
             break
         if rnd == rules.max_review_rounds:
             _message(db, run, r_step, "review", "coordinator", "final",
@@ -328,10 +365,10 @@ def _execute(db: Session, run: AgRun, sess: AgSession) -> None:
         db.commit()
         previous_plan = plan
 
-    unresolved = [] if (review.get("verdict") == "approve" and not findings and not review.get("corrections")) \
-        else corrections
+    unresolved = [] if approved else corrections
     run.result = {"plan": plan, "context_version": version, "rounds": rnd, "approved": not unresolved,
-                  "unresolved": unresolved, "review_summary": review.get("summary", "")}
+                  "unresolved": unresolved, "overruled": all_dismissed,
+                  "review_summary": review.get("summary", "")}
     run.status = "completed" if not unresolved else "needs_review"
     event(db, run, "Final plan ready" if not unresolved else "Final plan ready, with unresolved issues for a person")
     db.commit()
