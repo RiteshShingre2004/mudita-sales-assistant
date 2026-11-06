@@ -310,6 +310,8 @@ li[data-status="not_connected"] .conn-state { color: var(--st-needs); }
 
 .notice-page { max-width: 60ch; margin: 48px auto; padding: 0 16px; }
 .notice-page h1 { font-size: 22px; margin-bottom: 8px; }
+.legal { line-height: 1.6; }
+.legal h2 { font-size: 16px; margin: 20px 0 4px; }
 
 /* ---------- small screens: one pane at a time ---------- */
 @media (max-width: 1100px) {

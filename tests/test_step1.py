@@ -118,3 +118,8 @@ def test_dashboard_pages_render(client):
     assert client.get("/healthz").json() == {"ok": True, "database": "ready"}
     conns = {c["provider"]: c["status"] for c in client.get("/api/connections").json()}
     assert conns["instagram"] == "not_configured"
+
+
+def test_public_privacy_pages_need_no_login(client):
+    assert "Privacy policy" in client.get("/privacy").text
+    assert "Delete my data" in client.get("/data-deletion").text

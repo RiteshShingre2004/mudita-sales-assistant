@@ -100,3 +100,14 @@ def inbox(request: Request, _: str = Depends(require_operator)):
 @app.get("/policy", response_class=HTMLResponse)
 def policy_page(request: Request, _: str = Depends(require_operator)):
     return templates.TemplateResponse(request, "policy.html", {"page": "policy"})
+
+
+# Public pages required to publish the Meta app (no login).
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy(request: Request):
+    return templates.TemplateResponse(request, "privacy.html", {})
+
+
+@app.get("/data-deletion", response_class=HTMLResponse)
+def data_deletion(request: Request):
+    return templates.TemplateResponse(request, "data_deletion.html", {})
