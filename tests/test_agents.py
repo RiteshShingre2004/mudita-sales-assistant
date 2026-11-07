@@ -417,3 +417,22 @@ def test_review_agent_judgement_calls_are_not_overruled(client, session, agents)
     rid = new_run(client, sid)
     d = detail(client, sid, rid)
     assert d["status"] == "needs_review" and not d["result"]["overruled"]
+
+
+def test_checker_fixes_name_an_exact_allowed_date():
+    """Seen live: Planning kept Sat 14 Nov (the weekend-migration offer) and Sat 28 Nov (after go-live)
+    for 3 rounds. The checker now names the exact working day to use, and agents get the calendar."""
+    from app.agents.agents import rules_brief
+    rules = parse_rules(SAMPLE_RULES)
+    def task(tid, due, deps=()):
+        return {"id": tid, "title": tid, "owner": "Daniel Brooks", "deadline": due, "depends_on": list(deps),
+                "sources": [], "owner_basis": "recommendation", "deadline_basis": "recommendation",
+                "touches_customer_data": False, "client_facing": False, "is_signoff": False,
+                "is_security_review": False, "rationale": ""}
+    plan = {"tasks": [task("T1", "2026-11-12"), task("T2", "2026-11-14", ["T1"]), task("T3", "2026-11-28")],
+            "recommendations": [], "open_questions": []}
+    found = {(f["rule"], f["task_id"]): f["fix"] for f in check_plan(plan, [], rules)}
+    assert "Fri 2026-11-13" in found[("R2", "T2")]
+    assert "Fri 2026-11-27" in found[("R2", "T3")] and "Fri 2026-11-27" in found[("R6", "T3")]
+    cal = rules_brief(rules)["allowed_deadline_dates"]
+    assert "Fri 2026-11-13" in cal and not any("2026-11-14" in d for d in cal) and cal[-1] == "Fri 2026-11-27"

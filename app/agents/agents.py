@@ -19,7 +19,7 @@ from datetime import date
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.agents.rules import CompanyRules
+from app.agents.rules import CompanyRules, working_days
 from app.agents.schemas import (INTAKE_SCHEMA, PLAN_SCHEMA, REVIEW_SCHEMA, IntakeOutput, PlanOutput, ReviewOutput,
                                 plan_cross_check)
 from app.config import settings
@@ -210,10 +210,17 @@ Produce:
 - open_questions: what is unresolved (conflicts, missing info, things needed from the client),
   citing fact ids.
 
-Follow every company rule. Owners must be on the team list (use full names). Keep facts,
+Follow every company rule. Owners must be on the team list (use full names).
+Every deadline MUST be one of the dates in "allowed_deadline_dates" (working days inside the
+window, with their weekday). If a fact mentions a weekend date or a date outside the window (for
+example an offer to work a weekend), do not use it as a deadline: pick the nearest allowed date,
+mark it as a recommendation, and mention the original offer in recommendations or open questions.
+A task's deadline is never before the deadline of a task it depends on. A sign-off depends on
+the deliverables it approves; it never depends on go-live (go-live may depend on the sign-off).
+Before answering, check each task's deadline against the allowed list and its dependencies. Keep facts,
 recommendations and open questions clearly separate; never present a recommendation as a fact.
-If you receive corrections from the Review Agent, return the full revised plan that fixes every
-one of them."""
+If you receive corrections, return the full revised plan that fixes every one of them. Corrections
+from the rule checker name the exact date to use: use it."""
 
 
 class PlanningAgent:
@@ -255,6 +262,9 @@ Look for: rule violations; owners or deadlines presented as facts that the trans
 support; tasks that contradict the transcript; missing work the facts call for; conflicts that
 the plan silently resolved instead of raising as open questions.
 
+Use "allowed_deadline_dates" for weekdays; do not work out weekdays yourself. Only report a
+weekend or window problem for a date that is not in that list.
+
 You also receive findings from an automatic rule checker. Each of them is a real violation:
 include every one in your corrections. Each correction names the task (or null), the problem,
 the exact fix, and a reference (a rule id like R2, a fact id like F5 or a line like L12).
@@ -286,7 +296,9 @@ def rules_brief(rules: CompanyRules) -> dict:
             "contract_go_live": rules.contract_go_live.isoformat(),
             "max_tasks_per_owner": rules.max_tasks_per_owner,
             "team": [{"name": m.name, "role": m.role, "tags": m.tags} for m in rules.team],
-            "rules": [{"id": r.id, "text": " ".join(r.text.split())} for r in rules.rules]}
+            "rules": [{"id": r.id, "text": " ".join(r.text.split())} for r in rules.rules],
+            # language models are unreliable at working out weekdays, so give them the calendar
+            "allowed_deadline_dates": [f"{d:%a} {d.isoformat()}" for d in working_days(rules)]}
 
 
 __all__ = ["IntakeAgent", "PlanningAgent", "ReviewAgent", "AgentOutputInvalid", "AgentResult", "LLMError",

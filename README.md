@@ -328,6 +328,12 @@ Measured from the live action log (each `lead_assessed` entry stores token count
   exactly. So when the Review Agent cites only those rules and the checker finds no such problem, the
   checker now overrules it. The override is shown, struck through, with the reason, and logged as an
   event. Judgement calls (grounding, owners, security and sign-off structure) are never overruled.
+- **The Planning Agent kept weekend deadlines for 3 rounds.** In a live run it kept Sat 14 Nov (from
+  the meeting's weekend-migration offer) and Sat 28 Nov (also after go-live), so the run ended
+  "Needs a person". Language models are unreliable at working out which weekday a date is. Both
+  agents now receive the list of allowed working days with their weekday names. Each checker fix
+  now names the exact date to use (for example "Set the deadline to Fri 2026-11-13"). When the checker
+  and the Review Agent flag the same problem, Planning gets the checker's exact version.
 - **Take over could be blocked while the model was thinking.** The pipeline held a database
   transaction across the LLM call. Found by a test that simulates an operator clicking Take over
   mid-call; fixed by committing before every model call.

@@ -4,7 +4,7 @@ The Review Agent (an LLM) reads the plan against the transcript and rules, but t
 checker below is plain code and has the final word on the hard rules: a plan with
 open rule violations is never marked approved, whatever the model says.
 """
-from datetime import date
+from datetime import date, timedelta
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -81,6 +81,26 @@ def _d(value) -> date | None:
         return None
 
 
+def working_days(rules: CompanyRules) -> list[date]:
+    """Every Monday-Friday from the meeting date to the contract go-live, inclusive."""
+    d, out = rules.meeting_date, []
+    while d <= rules.contract_go_live:
+        if d.weekday() < 5:
+            out.append(d)
+        d += timedelta(days=1)
+    return out
+
+
+def _nearest_working(day: date, rules: CompanyRules, not_before: date | None = None) -> date | None:
+    """The working day in the allowed window closest to `day` (earlier wins a tie), on or after `not_before`."""
+    days = [w for w in working_days(rules) if not_before is None or w >= not_before]
+    return min(days, key=lambda w: (abs((w - day).days), w > day)) if days else None
+
+
+def _fmt(d: date | None) -> str:
+    return f"{d:%a} {d.isoformat()}" if d else "a working day"
+
+
 def check_plan(plan: dict, facts: list[dict], rules: CompanyRules) -> list[dict]:
     """Return rule findings as {rule, task_id, problem, fix}. Empty list = compliant."""
     tasks = plan.get("tasks", [])
@@ -127,12 +147,17 @@ def check_plan(plan: dict, facts: list[dict], rules: CompanyRules) -> list[dict]
                                       "states it.", "Cite the fact with this date, or mark it as a recommendation.")
 
         # R2: working days
+        dep_floor = max((d for d in (_d(by_id[x].get("deadline")) for x in t.get("depends_on", [])
+                                     if x in by_id and x != tid) if d), default=None)
         if due and due.weekday() >= 5:
-            add("R2", tid, f"Deadline {due:%a %d %b} is a weekend.", "Move it to a working day (Mon-Fri).")
+            add("R2", tid, f"Deadline {_fmt(due)} is a weekend.",
+                f"Set the deadline to {_fmt(_nearest_working(due, rules, dep_floor))}, the nearest allowed "
+                "working day (mark it as a recommendation).")
         # R6: window
         if due and not (rules.meeting_date <= due <= rules.contract_go_live):
-            add("R6", tid, f"Deadline {due} is outside {rules.meeting_date} to {rules.contract_go_live}.",
-                "Keep deadlines between the meeting date and the contract go-live.")
+            add("R6", tid, f"Deadline {_fmt(due)} is outside {rules.meeting_date} to {rules.contract_go_live}.",
+                f"Set the deadline to {_fmt(_nearest_working(due, rules, dep_floor))} (inside the window, after "
+                "its dependencies), and mark it as a recommendation.")
 
         # dependencies exist, and come first
         for dep in t.get("depends_on", []):
@@ -143,8 +168,8 @@ def check_plan(plan: dict, facts: list[dict], rules: CompanyRules) -> list[dict]
             else:
                 dd = _d(by_id[dep].get("deadline"))
                 if due and dd and due < dd:
-                    add("R6", tid, f"Due {due} but depends on {dep}, due later ({dd}).",
-                        "Move this deadline on or after its dependency's deadline.")
+                    add("R6", tid, f"Due {_fmt(due)} but depends on {dep}, due later ({_fmt(dd)}).",
+                        f"Set the deadline to {_fmt(_nearest_working(dd, rules, dd))} or later, or move {dep} earlier.")
 
         # R3: customer data needs a security review dependency
         if t.get("touches_customer_data") and not t.get("is_security_review"):
@@ -165,7 +190,8 @@ def check_plan(plan: dict, facts: list[dict], rules: CompanyRules) -> list[dict]
                      (rules.member(o.get("owner")) or TeamMember(name="?")).name in pm for o in tasks)
             if not ok:
                 add("R4", tid, "Client-facing deliverable without a PM sign-off task that depends on it.",
-                    "Add (or extend) a sign-off task owned by the project manager that depends on this task.")
+                    f"Add {tid} to the depends_on of a sign-off task owned by the project manager. The sign-off "
+                    "comes after the deliverables and must not depend on go-live; go-live may depend on the sign-off.")
 
     # R5: capacity
     for name, n in counts.items():

@@ -241,19 +241,20 @@ def _overruled(correction: dict, findings: list[dict], plan: dict) -> str | None
 def _merge(review: dict, findings: list[dict], plan: dict) -> tuple[list[dict], list[dict]]:
     """Combine the Review Agent's corrections with the checker's findings.
     Returns (corrections that stand, Review Agent corrections the checker overruled)."""
-    merged, dismissed = [], []
+    # The checker's findings go first: they are exact and name the date to use. A Review Agent
+    # correction about the same task and rule would only repeat one of them less precisely.
+    merged = [{"task_id": f["task_id"], "problem": f["problem"], "fix": f["fix"],
+               "reference": f["rule"], "from": "rule_checker"} for f in findings]
+    dismissed = []
     for c in review.get("corrections", []):
+        cited = set(re.findall(r"\bR\d+\b", c.get("reference") or ""))
+        if cited and any(f["task_id"] == c.get("task_id") and f["rule"] in cited for f in findings):
+            continue
         why = _overruled(c, findings, plan)
         if why:
             dismissed.append({**c, "from": "review_agent", "overruled": why})
         else:
             merged.append({**c, "from": "review_agent"})
-    for f in findings:
-        already = any(c.get("task_id") == f["task_id"] and f["rule"] in (c.get("reference") or "")
-                      for c in merged)
-        if not already:
-            merged.append({"task_id": f["task_id"], "problem": f["problem"], "fix": f["fix"],
-                           "reference": f["rule"], "from": "rule_checker"})
     return merged, dismissed
 
 
